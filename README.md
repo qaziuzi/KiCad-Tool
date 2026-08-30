@@ -3,6 +3,12 @@
 A Claude Code skill that builds KiCad parts from a distributor link, a
 datasheet screenshot, or a BOM — and refuses to write anything it cannot check.
 
+> **Claude Code only.** It runs Python and `kicad-cli` on your machine and
+> edits your KiCad libraries in place, so it needs local filesystem access.
+> The CLI, the desktop app's Code pane, and the IDE extensions all work.
+> Claude chat on claude.ai cannot reach your machine, so it will not appear
+> there.
+
 ```
 /mkpart https://www.digikey.com/en/products/detail/...
 /mkpart C12345
