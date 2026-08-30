@@ -30,23 +30,52 @@ cd kicad-part-maker
 python install.py
 ```
 
-That installs the Python dependencies, finds your KiCad install *and your
-existing library folder* (by reading KiCad's own `sym-lib-table`), creates the
-category libraries, installs the skill into `~/.claude/skills/mkpart/`, and
-builds the search indexes. Takes about a minute.
+One command does the lot. Restart KiCad and Claude Code afterwards.
 
-If your libraries live somewhere it cannot guess:
+Re-running `install.py` is safe. It never overwrites a library that has parts
+in it, and it only adds library entries that are missing.
+
+### How your libraries get connected
+
+This is the part that usually needs doing by hand, so the installer does it.
+
+**Finding your libraries.** It reads KiCad's own `sym-lib-table` and picks the
+folder holding the most of your personal libraries. If you have none yet — a
+fresh KiCad install — it creates `~/Documents/KiCad/libraries` and uses that.
+Override with:
 
 ```bash
 python install.py --library-dir "/path/to/your/libraries"
 ```
 
-Then register the libraries in KiCad once — **Preferences → Manage Symbol
-Libraries** for the `.kicad_sym` files, **Manage Footprint Libraries** for the
-`.pretty` folders — and restart Claude Code.
+**Registering them.** Creating a `.kicad_sym` file does *not* make KiCad aware
+of it; KiCad only loads what is listed in its global `sym-lib-table` and
+`fp-lib-table`. The installer adds the missing entries itself — eight of them
+for the default four categories — so the libraries show up in the symbol and
+footprint choosers with nothing to click.
 
-Re-running `install.py` is safe. It never overwrites a library that has parts
-in it.
+Entries are inserted textually just before the closing bracket, so every
+existing byte of your table is left exactly as it was, and a `.bak` is written
+first. Existing nicknames are never touched; if one already points somewhere
+else it is reported and left alone.
+
+**One catch: close KiCad first.** KiCad rewrites these tables when it exits, so
+edits made while it is running get discarded. The installer detects this and
+stops rather than writing something that would silently vanish. Close KiCad and
+run:
+
+```bash
+python scripts/register.py --commit
+```
+
+Use `--no-register` if you would rather add them yourself via
+**Preferences → Manage Symbol / Footprint Libraries**.
+
+To see what it would do without changing anything:
+
+```bash
+python scripts/register.py
+```
 
 ---
 
@@ -158,6 +187,7 @@ Mostly you just use `/mkpart`. These are the pieces under it.
 
 ```bash
 python scripts/config.py                      # check what resolved
+python scripts/register.py                    # what KiCad knows about
 
 python scripts/symsource.py --search <part or family>
 python scripts/symsource.py --show Device:C
@@ -204,6 +234,7 @@ python scripts/symsource.py --rebuild
 | `scripts/genfp.py` | Generate a land pattern (IPC-7351B or transcribed) |
 | `scripts/addpart.py` | Validate and write a part |
 | `scripts/promote.py` | Move a reviewed part to its final library |
+| `scripts/register.py` | Add the libraries to KiCad's global lib tables |
 | `scripts/readbom.py` | Read `.xlsx`/`.csv` BOMs |
 | `scripts/selftest.py` | Round-trip proof against real libraries |
 

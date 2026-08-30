@@ -4,8 +4,9 @@ install.py - one command to make the mkpart skill usable.
     python install.py
 
 Detects your KiCad install and library folder, installs the Python
-dependencies, creates the category libraries, installs the skill into
-~/.claude/skills/mkpart/, and builds the search indexes.
+dependencies, creates the category libraries, registers them with KiCad,
+installs the skill into ~/.claude/skills/mkpart/, and builds the search
+indexes.
 
 Safe to re-run: it never overwrites a library that already has parts in it,
 and it tells you what it changed.
@@ -16,6 +17,7 @@ Options:
                          Components, Passives, Connectors)
     --skip-deps          do not run pip
     --skip-index         do not build the footprint/symbol indexes
+    --no-register        do not add the libraries to KiCad's library tables
     --project            install the skill into ./.claude/skills instead of
                          your user-wide ~/.claude/skills
 """
@@ -166,9 +168,15 @@ def resolve_library_dir(explicit: str | None) -> str | None:
         info("Found by reading the user libraries in KiCad's sym-lib-table.")
         return detected
 
-    fail("could not detect where your KiCad libraries live")
-    info('Re-run with:  python install.py --library-dir "<path>"')
-    return None
+    # A new KiCad user has no personal libraries yet, so there is nothing to
+    # detect. That is normal, not an error - pick a sensible home and say so.
+    default = os.path.join(os.path.expanduser("~"), "Documents", "KiCad",
+                           "libraries")
+    os.makedirs(default, exist_ok=True)
+    ok(f"created       {default}")
+    info("No existing personal libraries found, so a new folder was made.")
+    info('Somewhere else? Re-run with --library-dir "<path>"')
+    return default
 
 
 def create_libraries(library_dir: str, categories: list[str]) -> None:
@@ -249,6 +257,49 @@ def install_skill(project: bool) -> str | None:
     return dst
 
 
+def register_libraries(categories: list[str], skip: bool) -> bool:
+    """Tell KiCad the libraries exist. Without this they are invisible."""
+    step("KiCad library registration")
+    if skip:
+        warn("skipped (--no-register)")
+        info("Add them by hand: Preferences > Manage Symbol/Footprint Libraries")
+        return False
+
+    import config as cfg_mod
+    import register
+
+    cfg_mod._cached = None
+    try:
+        plan = register.plan(categories)
+    except register.RegisterError as exc:
+        fail(f"could not read KiCad's library tables: {exc}")
+        return False
+
+    pending = sum(len(t["add"]) for t in plan["tables"].values())
+    if pending == 0:
+        ok("all libraries already registered")
+        return True
+
+    if register.kicad_is_running():
+        warn(f"{pending} librar(ies) not registered - KiCad is running")
+        info("KiCad rewrites these tables when it closes, which would discard")
+        info("them. Close KiCad, then run:  python scripts/register.py --commit")
+        return False
+
+    try:
+        changed = register.apply(plan)
+    except (register.RegisterError, OSError) as exc:
+        fail(f"registration failed: {exc}")
+        return False
+
+    for kind, t in plan["tables"].items():
+        for name, uri, _ in t["add"]:
+            ok(f"registered    {name}  ({register.TABLES[kind][0]})")
+    for path in changed:
+        info(f"updated {path}  (backup alongside it)")
+    return True
+
+
 def build_indexes(skip: bool) -> None:
     step("Search indexes")
     if skip:
@@ -304,6 +355,8 @@ def main() -> int:
     ap.add_argument("--categories")
     ap.add_argument("--skip-deps", action="store_true")
     ap.add_argument("--skip-index", action="store_true")
+    ap.add_argument("--no-register", action="store_true",
+                    help="do not touch KiCad's library tables")
     ap.add_argument("--project", action="store_true")
     args = ap.parse_args()
 
@@ -334,6 +387,7 @@ def main() -> int:
     create_libraries(library_dir, categories)
     write_config(library_dir, categories)
     install_skill(args.project)
+    registered = register_libraries(categories, args.no_register)
     build_indexes(args.skip_index)
     verify()
 
@@ -349,12 +403,18 @@ def main() -> int:
 
     print(f"{GREEN}Setup complete.{RESET}"
           + (f"  ({len(warnings)} warning(s))" if warnings else ""))
+    if registered:
+        step_one = "Restart KiCad so it picks up the new libraries."
+    else:
+        step_one = "\n".join([
+            "Register the libraries in KiCad:",
+            "       Preferences > Manage Symbol Libraries    -> the .kicad_sym files",
+            "       Preferences > Manage Footprint Libraries -> the .pretty folders",
+            f"       in {library_dir}",
+        ])
     print(f"""
 Next:
-  1. Register the libraries in KiCad, once:
-       Preferences > Manage Symbol Libraries    -> add the .kicad_sym files
-       Preferences > Manage Footprint Libraries -> add the .pretty folders
-       in {library_dir}
+  1. {step_one}
 
   2. Restart Claude Code, then:
        /mkpart https://www.digikey.com/en/products/detail/...
