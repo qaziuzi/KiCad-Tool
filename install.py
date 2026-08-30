@@ -20,6 +20,7 @@ Options:
     --no-register        do not add the libraries to KiCad's library tables
     --project            install the skill into ./.claude/skills instead of
                          your user-wide ~/.claude/skills
+    --allow-temp-location  install even from a temp or Downloads folder
 """
 
 from __future__ import annotations
@@ -96,6 +97,51 @@ def step(title):
 
 
 # --------------------------------------------------------------------------
+
+
+def check_location() -> bool:
+    """
+    Refuse to install from a folder that will not survive.
+
+    The skill stores an absolute path to this checkout, so installing from a
+    temp directory or from inside an extracted .zip leaves /mkpart pointing at
+    a folder Windows later deletes - and every command then fails with a
+    confusing "file not found". Downloading the repo as a ZIP and running the
+    installer straight out of the extraction is the usual way in.
+    """
+    step("Location")
+    root = ROOT.replace("\\", "/")
+    low = root.lower()
+
+    temp_markers = []
+    for var in ("TEMP", "TMP"):
+        value = os.environ.get(var)
+        if value and low.startswith(value.replace("\\", "/").lower()):
+            temp_markers.append(f"inside %{var}%")
+    if "/appdata/local/temp/" in low:
+        temp_markers.append("inside AppData/Local/Temp")
+    if ".zip" in low:
+        temp_markers.append("inside an extracted .zip")
+    for part in ("/downloads/",):
+        if part in low:
+            temp_markers.append("inside your Downloads folder")
+
+    if not temp_markers:
+        ok(f"running from     {ROOT}")
+        return True
+
+    fail("this folder is not a safe home for the tool")
+    for m in temp_markers:
+        info(f"- {m}")
+    info("")
+    info("The skill records this absolute path, so it must not move or be")
+    info("cleaned up. Move the folder somewhere permanent, then re-run:")
+    info("")
+    info("    move it to e.g. ~/Documents/kicad-part-maker")
+    info("    cd <that folder> && python install.py")
+    info("")
+    info("Pass --allow-temp-location to install here anyway.")
+    return False
 
 
 def install_deps(skip: bool) -> None:
@@ -368,6 +414,8 @@ def main() -> int:
     ap.add_argument("--no-register", action="store_true",
                     help="do not touch KiCad's library tables")
     ap.add_argument("--project", action="store_true")
+    ap.add_argument("--allow-temp-location", action="store_true",
+                    help="install even from a temporary folder")
     args = ap.parse_args()
 
     print("KiCad part maker - setup")
@@ -384,6 +432,10 @@ def main() -> int:
         if not categories:
             print("--categories was empty")
             return 1
+
+    if not check_location() and not args.allow_temp_location:
+        print(f"\n{RED}Setup stopped.{RESET}")
+        return 1
 
     install_deps(args.skip_deps)
 

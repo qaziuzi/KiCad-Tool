@@ -40,6 +40,12 @@ thing to send.
 
 One command does the lot. Restart KiCad and Claude Code afterwards.
 
+**Put the folder somewhere permanent first.** The skill records an absolute
+path to this checkout, so if you unzip to Downloads or a temp folder and
+install from there, `/mkpart` breaks the moment that folder is cleaned up.
+`install.py` refuses to install from such a location. If you move the folder
+later, just re-run `python install.py`.
+
 Re-running `install.py` is safe. It never overwrites a library that has parts
 in it, and it only adds library entries that are missing.
 
