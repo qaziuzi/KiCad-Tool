@@ -22,13 +22,21 @@ same way you would.
 
 ## Install
 
-Needs [KiCad](https://www.kicad.org/) 7 or newer and Python 3.9+.
+Needs [KiCad](https://www.kicad.org/) and Python 3.9+.
 
 ```bash
 git clone <this-repo> kicad-part-maker
 cd kicad-part-maker
 python install.py
 ```
+
+**Tested on:** Windows 11, KiCad 9 and 10, Python 3.14.
+
+The KiCad file-format version is read from your installation rather than
+hardcoded, so other releases should work — but they have not been tested, and
+neither have macOS or Linux. Their paths are handled in the code. If you hit
+something, an issue with the output of `python scripts/config.py` is the useful
+thing to send.
 
 One command does the lot. Restart KiCad and Claude Code afterwards.
 

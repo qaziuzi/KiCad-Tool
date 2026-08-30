@@ -134,6 +134,58 @@ def _detect_library_dir() -> Optional[str]:
     return max(counts.items(), key=lambda kv: kv[1])[0]
 
 
+_VERSION_RE = re.compile(r"\(\s*version\s+(\d{6,})\s*\)")
+_GENVER_RE = re.compile(r'\(\s*generator_version\s+"([^"]+)"')
+
+
+def _first_file(root: str, suffix: str) -> Optional[str]:
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for name in sorted(filenames):
+            if name.endswith(suffix):
+                return os.path.join(dirpath, name)
+    return None
+
+
+def _detect_format_versions(share: Optional[str]) -> Dict[str, Optional[str]]:
+    """
+    Read the file-format versions this KiCad writes, from its own libraries.
+
+    KiCad refuses to open a file that claims a newer format than it knows, so
+    a hardcoded version silently breaks every release except the one it was
+    written against. The stock libraries are the authority.
+    """
+    out: Dict[str, Optional[str]] = {"symbol": None, "footprint": None,
+                                     "generator": None}
+    if not share:
+        return out
+
+    sym = _first_file(os.path.join(share, "symbols"), ".kicad_sym")
+    if sym:
+        try:
+            with open(sym, "r", encoding="utf-8", errors="replace") as fh:
+                head = fh.read(2048)
+            m = _VERSION_RE.search(head)
+            if m:
+                out["symbol"] = m.group(1)
+            g = _GENVER_RE.search(head)
+            if g:
+                out["generator"] = g.group(1)
+        except OSError:
+            pass
+
+    fp = _first_file(os.path.join(share, "footprints"), ".kicad_mod")
+    if fp:
+        try:
+            with open(fp, "r", encoding="utf-8", errors="replace") as fh:
+                head = fh.read(2048)
+            m = _VERSION_RE.search(head)
+            if m:
+                out["footprint"] = m.group(1)
+        except OSError:
+            pass
+    return out
+
+
 DEFAULTS: Dict[str, object] = {
     "library_dir": None,
     "kicad_share": None,
@@ -204,6 +256,14 @@ class Config:
         return dict(self._d.get("categories") or {})  # type: ignore[arg-type]
 
     @property
+    def footprint_format_version(self) -> str:
+        return str(self._d.get("footprint_format_version") or "20260206")
+
+    @property
+    def symbol_format_version(self) -> str:
+        return str(self._d.get("symbol_format_version") or "20251024")
+
+    @property
     def staging_category(self) -> str:
         """Where new parts land before review."""
         return str(self._d.get("staging_category") or "To Be Verified")
@@ -266,6 +326,23 @@ def load() -> Config:
         data["kicad_cli"] = _detect_kicad_cli(data.get("kicad_share"))  # type: ignore[arg-type]
     if not data.get("library_dir"):
         data["library_dir"] = _detect_library_dir()
+
+    versions = _detect_format_versions(data.get("kicad_share"))  # type: ignore[arg-type]
+    for key, detected in (("symbol_format_version", versions["symbol"]),
+                          ("footprint_format_version", versions["footprint"]),
+                          ("generator_version", versions["generator"])):
+        if not data.get(key) and detected:
+            data[key] = detected
+
+    # Stamp new libraries for the KiCad that is actually installed.
+    try:
+        import kicadlib as _k
+        if data.get("symbol_format_version"):
+            _k.DEFAULT_SYM_VERSION = str(data["symbol_format_version"])
+        if data.get("generator_version"):
+            _k.GENERATOR_VERSION = str(data["generator_version"])
+    except ImportError:
+        pass
 
     _cached = Config(data)
     return _cached

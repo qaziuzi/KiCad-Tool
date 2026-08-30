@@ -270,7 +270,9 @@ def build(spec: Dict) -> Tuple[List[K.Node], Dict[str, float]]:
     fp: List[K.Node] = [
         Atom("footprint"),
         Atom(name, quoted=True),
-        [Atom("version"), Atom("20260206")],
+        # Stamped for the installed KiCad, not hardcoded: KiCad will not open a
+        # file claiming a format newer than it understands.
+        [Atom("version"), Atom(cfg_mod.load().footprint_format_version)],
         [Atom("generator"), Atom("kicad-tool-genfp", quoted=True)],
         [Atom("generator_version"), Atom("1.0", quoted=True)],
         [Atom("layer"), Atom("F.Cu", quoted=True)],

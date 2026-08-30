@@ -20,6 +20,14 @@ from typing import Iterable, Iterator, List, Optional, Sequence, Union
 # regenerating a library does not produce a whole-file diff.
 NEWLINE = "\r\n"
 INDENT = "\t"
+
+# The file-format version stamped into a newly created library. KiCad refuses
+# to open a file claiming a newer format than it understands, so this must
+# match the installed KiCad, not whatever was current when this was written.
+# config.load() overwrites it with the version detected from the stock
+# libraries; this value is only the fallback.
+DEFAULT_SYM_VERSION = "20251024"
+GENERATOR_VERSION = "10.0"
 # KiCad wraps the xy pairs inside a (pts ...) list at this many per line.
 PTS_PER_LINE = 6
 
@@ -272,13 +280,13 @@ def get_symbol(lib: List[Node], name: str) -> Optional[List[Node]]:
     return None
 
 
-def new_library() -> List[Node]:
-    """An empty .kicad_sym matching the KiCad 10 header."""
+def new_library(version: Optional[str] = None) -> List[Node]:
+    """An empty .kicad_sym, stamped for the installed KiCad."""
     return [
         Atom("kicad_symbol_lib"),
-        [Atom("version"), Atom("20251024")],
+        [Atom("version"), Atom(version or DEFAULT_SYM_VERSION)],
         [Atom("generator"), Atom("kicad_symbol_editor", quoted=True)],
-        [Atom("generator_version"), Atom("10.0", quoted=True)],
+        [Atom("generator_version"), Atom(GENERATOR_VERSION, quoted=True)],
     ]
 
 
