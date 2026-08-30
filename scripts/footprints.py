@@ -25,11 +25,15 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import config as cfg_mod  # noqa: E402
 
-INDEX_VERSION = 3
+INDEX_VERSION = 4
 _PAD_RE = re.compile(r'\(\s*pad\s+(?:"((?:[^"\\]|\\.)*)"|([^\s()"]+))')
 _TOKEN_RE = re.compile(r"[a-z]+|\d+(?:\.\d+)?")
 _DESCR_RE = re.compile(r'\(\s*descr\s+"((?:[^"\\]|\\.)*)"')
 _TAGS_RE = re.compile(r'\(\s*tags\s+"((?:[^"\\]|\\.)*)"')
+
+# Token strings repeat heavily across a library (every 0603 part shares one),
+# so splitting each distinct string once per process is worth a few KB.
+_META_CACHE: Dict[str, set] = {}
 
 # Imperial chip-size codes. Distributors quote these; KiCad puts the imperial
 # code first and the metric code second ("C_0603_1608Metric").
@@ -73,8 +77,13 @@ def scan_footprint(path: str) -> Dict[str, object]:
         "pads": len(electrical),
         "pad_total": len(numbers),
         "smd": "(pad" in text and "smd" in text,
-        "descr": (descr.group(1)[:300] if descr else ""),
-        "tags": (tags.group(1)[:200] if tags else ""),
+        # Tokenised at index time, not at query time. Re-tokenising the
+        # description of every footprint on every search cost ~400 ms; doing it
+        # once here makes a search set arithmetic.
+        "m": " ".join(sorted(set(_tokens(
+            (descr.group(1)[:300] if descr else "")
+            + " " + (tags.group(1)[:200] if tags else "")
+        )))),
     }
 
 
@@ -179,14 +188,24 @@ def search(
     results: List[Tuple[float, Dict[str, object]]] = []
     for lib, entries in index["libraries"].items():  # type: ignore[union-attr]
         lib_tokens = set(_tokens(lib))
+        lib_hit = query_set & lib_tokens
         for name, info in entries.items():
+            meta = info.get("m")
+            meta_tokens = _META_CACHE.get(meta)
+            if meta_tokens is None:
+                meta_tokens = set(meta.split()) if meta else set()
+                _META_CACHE[meta] = meta_tokens
+
+            # Cheap reject first: most footprints share no token with the
+            # query, and there is no point scoring or tokenising those.
+            name_lower = name.lower()
+            if not (meta_tokens & query_set) and not lib_hit and not any(
+                tok in name_lower for tok in query_set
+            ):
+                continue
+
             name_tokens = set(_tokens(name))
             score = 0.0
-
-            meta_tokens = set(
-                _tokens(str(info.get("descr", "")) + " " + str(info.get("tags", "")))
-            )
-
             for tok in query_set:
                 if tok in name_tokens:
                     score += 2.0 if not tok.isalpha() else 1.5

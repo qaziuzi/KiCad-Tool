@@ -327,12 +327,18 @@ def load() -> Config:
     if not data.get("library_dir"):
         data["library_dir"] = _detect_library_dir()
 
-    versions = _detect_format_versions(data.get("kicad_share"))  # type: ignore[arg-type]
-    for key, detected in (("symbol_format_version", versions["symbol"]),
-                          ("footprint_format_version", versions["footprint"]),
-                          ("generator_version", versions["generator"])):
-        if not data.get(key) and detected:
-            data[key] = detected
+    # Detecting these means walking KiCad's library tree, which is slow enough
+    # to notice on every command. install.py writes them into config.json, so
+    # only pay for detection when they are absent.
+    keys = ("symbol_format_version", "footprint_format_version",
+            "generator_version")
+    if not all(data.get(k) for k in keys):
+        versions = _detect_format_versions(data.get("kicad_share"))  # type: ignore[arg-type]
+        for key, detected in zip(keys, (versions["symbol"],
+                                        versions["footprint"],
+                                        versions["generator"])):
+            if not data.get(key) and detected:
+                data[key] = detected
 
     # Stamp new libraries for the KiCad that is actually installed.
     try:

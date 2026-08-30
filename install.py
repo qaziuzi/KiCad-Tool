@@ -216,10 +216,20 @@ def write_config(library_dir: str, categories: list[str]) -> None:
         except (OSError, json.JSONDecodeError):
             existing = {}
 
+    import config as cfg_mod
+
     data = dict(existing)
     data["library_dir"] = library_dir
     data["categories"] = {c: c for c in categories}
     data.setdefault("staging_category", categories[0])
+
+    # Cache the KiCad format versions so every later command skips detection.
+    versions = cfg_mod._detect_format_versions(cfg_mod._detect_kicad_share())
+    for key, detected in (("symbol_format_version", versions["symbol"]),
+                          ("footprint_format_version", versions["footprint"]),
+                          ("generator_version", versions["generator"])):
+        if detected:
+            data[key] = detected
 
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
