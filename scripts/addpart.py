@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -179,7 +180,18 @@ def render_preview(sym: K.Node, out_dir: str) -> Optional[str]:
     if not cli or not os.path.exists(cli):
         return None
 
+    # Render into a directory of its own. Sharing one output folder meant
+    # picking whichever .svg sorted first, which silently returned the
+    # previous part's image.
+    name = K.symbol_name(sym)
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", name)
+    out_dir = os.path.join(out_dir, safe)
+    if os.path.isdir(out_dir):
+        for stale in os.listdir(out_dir):
+            if stale.endswith(".svg"):
+                os.unlink(os.path.join(out_dir, stale))
     os.makedirs(out_dir, exist_ok=True)
+
     tmp_lib = os.path.join(tempfile.mkdtemp(prefix="mkpart_"), "preview.kicad_sym")
     lib = K.new_library()
     K.add_symbol(lib, K.clone(sym))
@@ -197,7 +209,11 @@ def render_preview(sym: K.Node, out_dir: str) -> Optional[str]:
     if proc.returncode != 0:
         return None
 
-    svgs = [f for f in os.listdir(out_dir) if f.endswith(".svg")]
+    svgs = sorted(f for f in os.listdir(out_dir) if f.endswith(".svg"))
+    # kicad-cli names the file after the symbol, so verify rather than assume.
+    for candidate in svgs:
+        if candidate.startswith(safe) or safe in candidate:
+            return os.path.join(out_dir, candidate)
     return os.path.join(out_dir, svgs[0]) if svgs else None
 
 
