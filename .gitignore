@@ -30,3 +30,7 @@ venv/
 Thumbs.db
 .DS_Store
 desktop.ini
+
+# A project-scoped install of the skill (install.py --project). Machine
+# specific: it has the absolute tool path substituted in.
+.claude/skills/

@@ -40,6 +40,19 @@ thing to send.
 
 One command does the lot. Restart KiCad and Claude Code afterwards.
 
+`install.py` puts the skill in `~/.claude/skills/mkpart/`, which some setups
+surface under a namespace — so it may appear as `/anthropic-skills:mkpart`
+rather than plain `/mkpart`. If you would rather have the short name inside a
+particular project, install a project-scoped copy from that folder:
+
+```bash
+python install.py --project
+```
+
+That writes `.claude/skills/mkpart/` in the current directory, where it is
+always plain `/mkpart`. Both copies are fine; the project one wins where it
+exists.
+
 **Put the folder somewhere permanent first.** The skill records an absolute
 path to this checkout, so if you unzip to Downloads or a temp folder and
 install from there, `/mkpart` breaks the moment that folder is cleaned up.
