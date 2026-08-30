@@ -1,0 +1,8 @@
+# Normalise line endings in the repo. KiCad library files are written with
+# CRLF by kicadlib and never live in this repo, so this does not touch them.
+* text=auto eol=lf
+
+*.png binary
+*.pdf binary
+*.step binary
+*.wrl binary

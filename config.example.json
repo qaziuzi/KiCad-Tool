@@ -1,0 +1,19 @@
+{
+  "_comment": "install.py writes config.json for you. Copy this only if you want to configure by hand. Paths use forward slashes or escaped backslashes.",
+
+  "library_dir": "C:/Users/you/Documents/KiCad/MyLibraries",
+
+  "categories": {
+    "To Be Verified": "To Be Verified",
+    "Active Components": "Active Components",
+    "Passives": "Passives",
+    "Connectors": "Connectors"
+  },
+
+  "staging_category": "To Be Verified",
+
+  "_optional": "Everything below is auto-detected. Set them only to override.",
+  "kicad_share": null,
+  "kicad_cli": null,
+  "python": null
+}

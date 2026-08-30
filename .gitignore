@@ -1,0 +1,32 @@
+# Machine-specific. Written by install.py; never commit yours.
+config.json
+
+# Rebuilt from your KiCad install in seconds.
+.cache/
+
+# Working files: part specs, generated previews, LCSC downloads.
+staging/
+
+# Local Claude Code permission grants - contains absolute paths.
+.claude/settings.local.json
+
+# Personal notes
+to dos.txt
+TODO.txt
+notes.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# KiCad backups, in case anyone points this at a library folder
+*.kicad_sym.bak
+*-backups/
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
