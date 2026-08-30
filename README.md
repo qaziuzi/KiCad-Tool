@@ -239,7 +239,7 @@ python scripts/symsource.py --rebuild
 | `install.py` | One-command setup |
 | `CONVENTIONS.md` | **Your rulebook.** Edit this |
 | `config.json` | Library location and categories (written by `install.py`, gitignored) |
-| `.claude/skills/mkpart/SKILL.md` | The skill itself |
+| `skill/SKILL.md` | The skill template. `install.py` copies it to `~/.claude/skills/mkpart/`, substituting the tool path |
 | `scripts/kicadlib.py` | S-expression reader/writer. Owns every write |
 | `scripts/symsource.py` | Stock KiCad symbol search and extraction |
 | `scripts/footprints.py` | Footprint index, search, pad counting |

@@ -286,7 +286,12 @@ def write_config(library_dir: str, categories: list[str]) -> None:
 
 def install_skill(project: bool) -> str | None:
     step("Skill")
-    src = os.path.join(ROOT, ".claude", "skills", "mkpart", "SKILL.md")
+    # The template lives in skill/, deliberately NOT in .claude/skills/.
+    # A copy there is auto-discovered whenever Claude Code opens this repo as
+    # the project, and it still holds the {{TOOL_HOME}} placeholder - so it
+    # shadows the real installed skill and every command fails on a path that
+    # does not exist.
+    src = os.path.join(ROOT, "skill", "SKILL.md")
     if not os.path.isfile(src):
         fail(f"skill source missing: {src}")
         return None
