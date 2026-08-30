@@ -43,10 +43,36 @@ library directly, and never promote without being told where.
 
 ### 1. Identify the part
 
-**From a screenshot** — the fastest path, and users often supply these. A
-screenshot of the pinout table or the package dimension drawing is *better*
-than the PDF: it is already cropped to what matters. Read it directly. If a
-value is not legible, say which and ask — do not squint and guess.
+**From screenshots — the fast path, and the one to encourage.**
+
+Hunting down a datasheet is the slowest part of making a part: manufacturer
+sites return 403, distributor "datasheet" links sometimes serve HTML, and
+pinouts are vector art that has to be rendered and cropped before it can be
+read. A screenshot skips all of it and is *better* input, because the user has
+already chosen the right page.
+
+Ideal set for a fast, complete part:
+
+| Supply | Fills |
+|---|---|
+| Screenshot of the **numbered** pinout / pin-configuration table | pin numbers, names, function |
+| Screenshot of the **recommended pad layout** (or package dimension table) | footprint, if one must be generated |
+| The **datasheet URL**, pasted as text | the `Datasheet` field |
+| Distributor link **or** MPN + manufacturer | MPN, manufacturer, description, ratings, LCSC code |
+
+The URL matters: `CONVENTIONS.md` requires a real manufacturer PDF link in the
+`Datasheet` field, and an image cannot supply one. If it is missing, say so and
+either ask for it or leave the field blank — do **not** go hunting for it
+unless asked, because that reintroduces the cost the screenshots removed.
+
+Read images directly. If a value is not legible, say which and ask — do not
+squint and guess. If the pinout screenshot has no pin **numbers**, that is the
+same stop-and-ask case as an unnumbered datasheet: functional labels alone
+(`A1`, `C2`) do not tell you which physical lead is pin 1.
+
+With screenshots you see only what you were sent, so the cross-checks that
+catch a bad datasheet page are not available. Say plainly in the review packet
+that the pinout came from a supplied image and was not corroborated elsewhere.
 
 **From a spreadsheet**:
 
