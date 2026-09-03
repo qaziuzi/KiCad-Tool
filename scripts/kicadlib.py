@@ -253,6 +253,28 @@ def clone(node: Node) -> Node:
     return [clone(c) for c in node]
 
 
+def tree_equal(a: Node, b: Node) -> bool:
+    """Structural equality, ignoring formatting.
+
+    Two files that parse to the same tree are the same file as far as KiCad is
+    concerned, whatever their indentation or line breaks. Comparing raw bytes
+    would call a reformatted-but-identical footprint a conflict.
+    """
+    if isinstance(a, Atom) and isinstance(b, Atom):
+        return a.value == b.value and a.quoted == b.quoted
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(tree_equal(x, y) for x, y in zip(a, b))
+    return False
+
+
+def files_equal(path_a: str, path_b: str) -> bool:
+    """True if two S-expression files parse to the same tree."""
+    try:
+        return tree_equal(parse_file(path_a), parse_file(path_b))
+    except (ParseError, OSError):
+        return False
+
+
 # --------------------------------------------------------------------------
 # Symbol-library level operations
 # --------------------------------------------------------------------------

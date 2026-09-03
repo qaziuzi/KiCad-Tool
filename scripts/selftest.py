@@ -74,11 +74,7 @@ def main() -> int:
 
 
 def _tree_equal(a, b) -> bool:
-    if isinstance(a, K.Atom) and isinstance(b, K.Atom):
-        return a.value == b.value and a.quoted == b.quoted
-    if isinstance(a, list) and isinstance(b, list):
-        return len(a) == len(b) and all(_tree_equal(x, y) for x, y in zip(a, b))
-    return False
+    return K.tree_equal(a, b)
 
 
 def _show_first_diff(path: str, original: str, produced: str) -> None:

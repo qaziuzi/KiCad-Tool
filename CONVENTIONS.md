@@ -115,6 +115,12 @@ provides them. They drive search and footprint filtering.
 
 ## 4. Footprints — in this order
 
+**A footprint belongs to a package, not to a part.** Recommended land patterns
+are published per-manufacturer, but `SOT-23`, `SOIC-8` and `PG-DSO-8` are shared
+by thousands of parts. Key footprints off datasheets and you mint a near-duplicate
+for every component you ever add; key them off packages and forty footprints cover
+a career. Work down this list and stop at the first hit.
+
 **0. The footprint the stock symbol already names.** If the symbol came from a
 KiCad stock library, it usually carries a `Footprint` and a `ki_fp_filters`
 already. KiCad's librarians chose that pairing deliberately — trust it over a
@@ -125,8 +131,13 @@ and the two are *not* interchangeable: `SOT-23` is JEDEC TO-236 with pads at
 ±0.9375 mm, `SOT-23-3` is an inferred MO-178 variant at ±1.1375 mm. Same pad
 count, so the pin/pad check cannot catch a wrong pick — only this rule can.
 
-**1. KiCad stock library.** Preferred when the symbol names no footprint. It is
-KLC-compliant, has correct courtyards, and needs no extra registration.
+**1. A footprint we already have.** `footprints.py` indexes this library folder
+as well as KiCad's, so our own footprints come back from the same search. If an
+earlier part in this package left one behind, reuse the reference verbatim.
+Never regenerate a footprint that already exists.
+
+**2. KiCad stock.** The default for any standard package. It is KLC-compliant,
+has correct courtyards, and needs no extra registration.
 
 ```
 python scripts/footprints.py --package "LQFP-48 7x7mm P0.5mm" --pins 48
@@ -136,7 +147,7 @@ Search using the package exactly as the distributor writes it, including the
 JEDEC name — `"TO-236-3 SC-59 SOT-23-3"`, not just `"SOT-23"`. Descriptions are
 indexed, so the JEDEC designation is what disambiguates lookalike packages.
 
-**2. LCSC/EasyEDA**, when KiCad has nothing suitable — odd packages, modules,
+**3. LCSC/EasyEDA**, when KiCad has nothing suitable — odd packages, modules,
 Chinese-market connectors.
 
 ```
@@ -146,17 +157,51 @@ python scripts/lcsc.py <LCSC-id> --install
 Lands in `EasyEDA.pretty`, referenced as `EasyEDA:<name>`. Register that folder
 in KiCad once (Preferences → Manage Footprint Libraries → Global).
 
-**3. Generated from the datasheet**, when neither has it. Two modes, and
-**picking the right one matters more than the arithmetic**.
+**4. Generated**, only when a named reason below applies.
 
 ```
-python scripts/genfp.py spec.json --out "<lib>/Passives.pretty" --compare <ref>
+python scripts/genfp.py spec.json --out "<lib>/To Be Verified.pretty" --compare <ref>
 ```
+
+### When a generated footprint is justified
+
+**[hard-ish] Generate only when one of these is true:**
+
+1. **Isolation or creepage.** The part has a galvanic barrier with a rated
+   creepage/clearance and the stock land pattern would eat into it. Optocouplers,
+   digital isolators, isolated gate drivers, isolated ADCs.
+2. **Thermal pad.** The package has an exposed thermal/ground pad the stock
+   footprint lacks, sizes differently, or splits the paste differently.
+3. **Nothing suitable exists.** KiCad has no footprint for the package and LCSC
+   has none worth using.
+4. **The leads would not land.** Pitch or pad centres genuinely differ, so the
+   part does not sit on the stock pads.
+5. **Mains-facing spacing.** A high-voltage clearance requirement drives the pad
+   positions.
+
+**These are explicitly not reasons:**
+
+- **The datasheet publishes a recommended pad layout.** Most do. That alone is
+  not a reason, and treating it as one is what fills a library with four
+  slightly different SOIC-8s.
+- **Pad length, toe or heel differs from IPC.** That is IPC's inspection
+  philosophy, not a defect — see the SOT-23 table below.
+- **Courtyard or silkscreen differs.**
+
+The test is whether the difference changes *where the lead lands* or *how much
+copper clearance survives*. **Pad centres and gaps matter; pad lengths do not.**
+
+Record the triggering reason in the footprint's `descr` and in the review packet.
+
+Before generating, check whether the manufacturer publishes a CAD footprint
+directly — many vendors publish STEP files, and some ship KiCad or Altium
+libraries. Not transcribing at all beats transcribing well.
+
+### Which mode, once you are generating
 
 **`mode: "manufacturer"` — the default choice.** Transcribe the datasheet's own
 *Recommended/Suggested Pad Layout* drawing: pad size and pad centres, verbatim.
-No computation, so no interpretation to get wrong. Use this whenever the
-datasheet provides a recommended layout — most do.
+No computation, so no interpretation to get wrong.
 
 Datasheets give **redundant** dimensions (an overall span that must equal the
 row pitch plus one pad). Put them in `verify` and the tool re-derives them from
@@ -189,24 +234,47 @@ inspection; manufacturers often publish a more compact pad. Neither is wrong.
 KiCad's own SOT-23 is IPC-derived and sits within 0.06 mm of our IPC output, and
 0.575 mm from the datasheet's.
 
+**This is the worked example of a difference that does not justify a new
+footprint.** The pad centres move by 0.104 mm; everything else is pad length,
+which is exactly the IPC-versus-manufacturer philosophy above. No isolation
+barrier, no thermal pad, and the leads land fine either way — so a BAV99 belongs
+on stock `Package_TO_SOT_SMD:SOT-23` and no footprint gets generated.
+
+Contrast the case that *does* qualify: Infineon's PG-DSO-8 for the 1EDBx275F
+isolated gate driver. The stock IPC pads sit 0.29 mm further inboard, cutting the
+copper gap across the isolation barrier from 4.06 mm to 3.00 mm, against a
+package rated for 4 mm creepage. That is reason 1, and it is about the gap, not
+the pad length.
+
+### Naming
+
+**[hard] Name a generated footprint after the package, never after the part.**
+
+```
+Infineon_PG-DSO-8_3.9x4.9mm_P1.27mm     correct
+SOT-23_BAV99                            wrong
+```
+
+A part-named footprint is invisible to the next component in that package, so
+the next part generates its own copy — which is precisely the duplication this
+section exists to prevent.
+
 ### Library policy
 
-**[hard-ish] Datasheet first, IPC fallback.** If the datasheet publishes a
-recommended pad layout, transcribe it. Only compute IPC-7351B when it does not.
-Record which was used in `descr`, so any footprint can be traced back.
-
-Before either, check whether the manufacturer publishes a CAD footprint
-directly — many vendors publish STEP files, and some ship KiCad or Altium
-libraries. Not transcribing at all beats transcribing well.
-
-Accept that generated footprints will not match the IPC philosophy of KiCad's
-stock ones. That is the deliberate trade: footprints we make should be
-checkable against their datasheet, because that is how they get reviewed.
+Generated footprints go in `To Be Verified.pretty` next to the symbol, and are
+referenced as `To Be Verified:<name>`. `promote.py` moves them into the category
+the user names at review time, and repoints the `Footprint` field. If that
+category already holds an identical footprint of the same name, `promote.py`
+reuses it rather than failing — that is the reuse path working as intended.
 
 Run `--compare` against a stock footprint of the same family every time — not to
 match it, but to see the size of the disagreement. A delta under ~0.1 mm in IPC
 mode means the numbers were typed correctly. A large delta in manufacturer mode
 is normal; a large delta in IPC mode means a mis-typed dimension.
+
+Accept that generated footprints will not match the IPC philosophy of KiCad's
+stock ones. That is the deliberate trade: footprints we make should be
+checkable against their datasheet, because that is how they get reviewed.
 
 ### Hard rules
 
@@ -282,8 +350,11 @@ end of the job — the review packet is.
 1. **Pin mapping table** — pin number, name, electrical type, and the pad it
    lands on. This is the thing most worth checking, so it goes first.
 2. **Symbol picture** — rendered with `kicad-cli`, attached to the message.
-3. **Footprint** — the reference, whether it is stock or generated, and if
-   generated, which land pattern standard and the key dimensions.
+3. **Footprint** — the reference, and which of the sources in §4 it came
+   from: the symbol's own, one we already had, KiCad stock, LCSC, or generated.
+   If generated, name the §4 reason that allowed it, plus the land pattern
+   standard and the key dimensions. If stock was used and the datasheet does
+   publish its own layout, say so in one line so the choice stays visible.
 4. **Datasheet link**, plus the page the pinout came from.
 5. **Anything uncertain**, stated plainly rather than buried.
 
@@ -297,6 +368,8 @@ Before posting the packet, these must already have been checked:
 - MPN on the page matches the MPN being written
 - pin assignment came from a **numbered** datasheet pinout, not inference
 - the part is not already in a final library under another name
+- no footprint was generated without one of the §4 reasons
+- any generated footprint is named after the package, not the part
 
 Flag rather than guess. A part that needs a question is cheaper than a part
 that is silently wrong.
@@ -316,5 +389,10 @@ packet posted — a part still being corrected is never promoted.
 - Never trust the MPN in a Digi-Key URL — Digi-Key routes by the numeric ID and
   the path can name a different part. Read the page body.
 - Never use easyeda2kicad's metadata for fields. Geometry only.
+- Never generate a footprint just because the datasheet publishes a recommended
+  pad layout. That is not a reason — see §4.
+- Never name a footprint after a part when it describes a package.
+- Never fetch a datasheet when screenshots were supplied, unless the command
+  asked for it. Ask about an unclear dimension instead.
 - Never edit `.kicad_sym` files by hand or with a text editor. All writes go
   through `addpart.py`, which validates and backs up.

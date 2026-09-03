@@ -92,6 +92,7 @@ def plan(name: str, target: str, rename: Optional[str] = None,
     # Stock KiCad references are left exactly as they are.
     fp_ref = K.get_property(sym, "Footprint") or ""
     fp_move = None
+    fp_drop = None
     new_fp_ref = fp_ref
     if fp_ref.startswith(staging + ":"):
         fp_name = fp_ref.split(":", 1)[1]
@@ -101,7 +102,21 @@ def plan(name: str, target: str, rename: Optional[str] = None,
         if not os.path.isfile(src_fp):
             problems.append(f"footprint file missing: {src_fp}")
         elif os.path.exists(dst_fp):
-            problems.append(f"footprint already exists in {target}.pretty: {fp_name}")
+            # Footprints are named after the package, so a second part in the
+            # same package legitimately wants the one already there. Identical
+            # geometry is reuse, not a collision - only a genuine difference
+            # under the same name is a problem.
+            if K.files_equal(src_fp, dst_fp):
+                fp_drop = src_fp
+                new_fp_ref = f"{target}:{fp_name}"
+                actions.append(
+                    f"reuse footprint {fp_name} already in {target}.pretty")
+            else:
+                problems.append(
+                    f"{target}.pretty already has a different footprint named "
+                    f"{fp_name}. Same name, different geometry - rename one of "
+                    f"them (promote.py --rename renames the symbol; rebuild the "
+                    f"footprint under a new name with genfp.py)")
         else:
             fp_move = (src_fp, dst_fp)
             new_fp_ref = f"{target}:{fp_name}"
@@ -126,6 +141,7 @@ def plan(name: str, target: str, rename: Optional[str] = None,
         "footprint_from": fp_ref,
         "footprint_to": new_fp_ref,
         "fp_move": fp_move,
+        "fp_drop": fp_drop,
         "actions": actions,
         "problems": problems,
         "pins": K.pin_count(sym),
@@ -163,10 +179,15 @@ def execute(p: Dict[str, object], replace: bool = False) -> None:
     K.remove_symbol(src_lib, str(p["name"]))
     K.write_library(str(p["src_path"]), src_lib)
 
+    # Drop the staging copy either way: moved, or superseded by the identical
+    # one already in the target.
+    stale = None
     if fp_move:
-        src_fp, _ = fp_move  # type: ignore[misc]
-        if os.path.isfile(src_fp):
-            os.unlink(src_fp)
+        stale = fp_move[0]  # type: ignore[index]
+    elif p.get("fp_drop"):
+        stale = str(p["fp_drop"])
+    if stale and os.path.isfile(stale):
+        os.unlink(stale)
 
 
 def main() -> int:
