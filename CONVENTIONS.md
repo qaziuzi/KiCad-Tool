@@ -56,17 +56,16 @@ Do not invent a new category.
 
 ## 2. Symbol naming
 
-**Active Components and Connectors** — name by manufacturer part number,
-exactly as the manufacturer writes it:
+**The principle is the same everywhere: name by whatever is most important
+for finding and distinguishing that part, most important first.** What that
+turns out to be is different for each category, and the rest of this section
+is that working out.
 
-```
-ATSAMD21G18A-AU
-NCP1117ST33T3G
-PPTC061LFBN-RC
-```
+### Passives
 
-**Passives** — name descriptively, because the MPN is meaningless at the
-schematic level. Order: value, voltage/power, package, characteristic.
+The MPN is meaningless at the schematic level — nobody chooses a resistor by
+part number — so name descriptively. Order: value, voltage/power, package,
+characteristic.
 
 ```
 100nF_50V_0603_X7R
@@ -76,6 +75,75 @@ schematic level. Order: value, voltage/power, package, characteristic.
 
 Omit a segment when it does not apply. Use `u` not `µ` — non-ASCII in symbol
 names causes trouble across tools.
+
+### Active Components
+
+Name by manufacturer part number, exactly as the manufacturer writes it:
+
+```
+ATSAMD21G18A-AU
+NCP1117ST33T3G
+PPTC061LFBN-RC
+```
+
+This looks like the odd one out next to Passives and Connectors below, but it
+follows the same principle. For an IC the MPN is not an arbitrary catalogue
+number — it is the single token that fully pins down flash size, pin count,
+package, speed grade and often firmware-relevant behaviour, none of which a
+short set of attributes could restate without a real risk of someone
+substituting the wrong variant. The MPN already **is** the most important,
+most specific thing about the part, so under the same "most important first"
+rule there is nothing more important to put in front of it.
+
+### Connectors
+
+Two different cases, because "the package" means different things.
+
+**Generic hardware** — pin headers and sockets, plain terminal blocks, test
+points, anything mechanically standard and genuinely interchangeable across
+manufacturers at the same pitch. Name the same way as a passive: the
+mechanical/electrical facts a designer actually searches by, most important
+first.
+
+```
+<positions>P_<pitch>_<current>A_<voltage>V_<orientation>[_<special>]
+```
+
+```
+4P_2.54mm_3A_250V_Vertical
+2P_5.08mm_16A_250V_Horizontal
+1x6_1.27mm_SMD
+```
+
+Position count and pitch are almost never omitted — they are what actually
+determines whether the part mates with anything. Current and voltage rating
+are the connector's "power/voltage" segment and are dropped when the datasheet
+gives nothing that distinguishes this part from the generic default for its
+pitch. Orientation (vertical / horizontal / right-angle) and anything special
+(locking, keying, shrouding, colour) follow the same "omit when it does not
+apply" rule as passives.
+
+**Branded or keyed systems** — JST, Molex, USB, FFC/FPC, board-to-board, RF.
+Mating compatibility here is series-specific, not just pitch-specific: a
+JST-PH and a JST-XH can sit at different pitches but two *different* series at
+the *same* pitch are still not interchangeable, so pitch and position count
+alone are not enough to safely identify the part. Keep the series name, then
+append the same attribute order as above for scanability:
+
+```
+<Series>_<positions>P_<pitch if it varies within the series>_<orientation>[_<special>]
+```
+
+```
+JST-XH_4P_Vertical
+Molex-KK254_6P_Horizontal
+USB-C_16P_SMD_Receptacle
+```
+
+**Why this is safe even though it drops the MPN from the name:** the `Part
+Number` field (section 3) still carries the exact manufacturer part number
+regardless of how the symbol is named. The symbol name is what a person
+browses by; `Part Number` is what actually gets ordered. Losing neither.
 
 **[hard]** No `/`, `\` or `:` in a symbol name.
 
@@ -88,10 +156,10 @@ Every part carries exactly these eight. No more, no fewer.
 | Field | Rule |
 |---|---|
 | `Reference` | `U` active · `C` `R` `L` `FB` `Y` passives · `J` connectors. **[hard]** letters only — `C1` is wrong, `C` is right |
-| `Value` | Passives: the electrical value in KiCad shorthand (`0.1u`, `10k`, `4.7u`). Active/connectors: the MPN |
+| `Value` | Passives and generic-hardware connectors: the descriptive value used in the symbol name (`0.1u`, `10k`, `4P_2.54mm_Vertical`). Active Components and branded/keyed connectors: the MPN |
 | `Footprint` | **[hard]** `Library:Name`, and must exist |
 | `Datasheet` | Direct URL to the manufacturer's PDF. Never an LCSC or Digi-Key product page. Strip tracking query strings |
-| `Description` | One line, human-readable. Manufacturer first for ICs |
+| `Description` | One line, human-readable, ordered — see *Description style* below |
 | `Part Number` | Manufacturer part number |
 | `Manufacturer` | Full manufacturer name, in English. strip trailing non-Latin text that LCSC data carries |
 | `LCSC` | LCSC code (`C12345`) if known, otherwise omit the field entirely |
@@ -105,11 +173,54 @@ provides them. They drive search and footprint filtering.
 
 ### Description style
 
-- IC: `<Manufacturer> <function>, <key specs>, <package>`
-  → `STMicroelectronics Arm Cortex-M4 MCU, 128KB flash, 170 MHz, LQFP48`
-- Passive: `<value> <tolerance> <rating> <type> <package>`
-  → `0.1uF ±10% 50V Ceramic Capacitor X7R 0603`
-- Connector: `<type>, <positions>, <pitch>, <mounting>`
+**Resistors, capacitors, diodes** — pipe-separated, in this order:
+
+```
+value | tolerance | rating | type (short) | anything special (short)
+```
+
+- `value` — the datasheet's headline electrical value. For a diode this is
+  the characteristic voltage: Vz for a zener, Vr for a rectifier or Schottky.
+- `tolerance` — a percentage where one applies. `-` where it does not (most
+  rectifier/Schottky diodes have no meaningful tolerance).
+- `rating` — whichever of power/current/voltage the datasheet leads with for
+  that part family. A small-signal zener leads with power; a rectifier leads
+  with forward current.
+- `type (short)` — the datasheet's own construction or technology term,
+  shortened only if it is long: `Ceramic X7R` → `X7R`, `Metal Film` → `MF`,
+  `Schottky Barrier` → `Schottky`.
+- `special (short)` — anything else worth flagging at a glance: `AEC-Q200`,
+  `Low ESR`, `Fast Recovery`. `-` when there is nothing.
+
+Keep the `-` placeholder rather than dropping a segment — unlike a symbol
+name, the Description reads as a row in a table, and every passive having the
+same number of fields is what makes it scannable.
+
+```
+10k | ±1% | 0.25W | MF | -
+100nF | ±10% | 50V | X7R | -
+15V | ±5% | 200mW | Zener | -
+30V | - | 3A | Schottky | Low Vf
+```
+
+**ICs** — unchanged, because the same principle produces a different shape
+for actives (see section 2): `<Manufacturer> <function>, <key specs>, <package>`
+
+```
+STMicroelectronics Arm Cortex-M4 MCU, 128KB flash, 170 MHz, LQFP48
+```
+
+**Connectors** — mirrors the symbol name (section 2), so the two read
+together:
+
+```
+<positions>, <pitch>, <current>/<voltage> rating, <orientation>[, <special>]
+```
+
+```
+4 pos, 2.54mm, 3A/250V, Vertical
+JST-XH, 4 pos, Vertical, wire-to-board
+```
 
 ---
 
@@ -248,16 +359,52 @@ the pad length.
 
 ### Naming
 
-**[hard] Name a generated footprint after the package, never after the part.**
+**[hard] Name a generated footprint after the package, never after the part —
+and keep the name as simple as KiCad's own.** Look at what's already in the
+library: `SOIC-8_3.9x4.9mm_P1.27mm`, `C_0603_1608Metric`, `SOT-23`. No
+manufacturer prefix, no manufacturer-proprietary package code. Match that:
 
 ```
-Infineon_PG-DSO-8_3.9x4.9mm_P1.27mm     correct
-SOT-23_BAV99                            wrong
+<common package name>[_<dimensions>][_<reason tag>]
+```
+
+- **Common package name** — the generic industry name, not the manufacturer's
+  house name for it. `SOIC-8`, not Infineon's `PG-DSO-8`; `SOT-23`, not a
+  vendor's internal code for the same outline.
+- **Dimensions, only if necessary** — add body size and pitch when the
+  package comes in more than one size (almost always true for an IC package;
+  sometimes not, for a one-off single-size part). This is the same pattern
+  the *Chip size trap* below already documents for stock passives — we are
+  just applying it to what we generate.
+- **Reason tag, only if the simple name would collide** with a stock or
+  another generated footprint that has different geometry under the same
+  name. Use a short mnemonic tied to the §4 reason that triggered generation:
+
+  | Reason | Tag |
+  |---|---|
+  | Isolation / creepage | `_Iso` |
+  | Thermal pad | `_EP` |
+  | Mains-facing spacing | `_HV` |
+  | Nothing suitable exists | *(none — nothing to collide with)* |
+  | Leads would not land | the differing dimension is usually enough; add `_Wide` / `_Narrow` only if it still collides |
+
+```
+SOIC-8_3.9x4.9mm_P1.27mm_Iso     correct — the 1EDBx275F gate driver case
+Infineon_PG-DSO-8_3.9x4.9mm_P1.27mm_Iso     wrong — manufacturer prefix, unneeded
+SOT-23_BAV99                     wrong — named after the part, not the package
 ```
 
 A part-named footprint is invisible to the next component in that package, so
 the next part generates its own copy — which is precisely the duplication this
 section exists to prevent.
+
+**Connectors** — the "package" is pitch × position count × row count × mount
+style (THT/SMD, vertical/right-angle/horizontal). That is what should drive
+both the `footprints.py` search and the name of anything generated, mirroring
+how KiCad's own `Connector_PinHeader_*` libraries are already organised —
+e.g. `PinHeader_1x04_P2.54mm_Vertical`. Branded/keyed series (JST, Molex,
+USB, FFC) are almost always already in KiCad stock or on LCSC; check both
+before generating one.
 
 ### Library policy
 
@@ -392,6 +539,12 @@ packet posted — a part still being corrected is never promoted.
 - Never generate a footprint just because the datasheet publishes a recommended
   pad layout. That is not a reason — see §4.
 - Never name a footprint after a part when it describes a package.
+- Never prefix a generated footprint with a manufacturer name or a
+  manufacturer's proprietary package code once a common industry name
+  exists for it (`SOIC-8`, not `Infineon_PG-DSO-8`).
+- Never let a descriptive connector symbol name substitute for the
+  `Part Number` field — the exact MPN still belongs there even when the
+  symbol is named by attributes.
 - Never fetch a datasheet when screenshots were supplied, unless the command
   asked for it. Ask about an unclear dimension instead.
 - Never edit `.kicad_sym` files by hand or with a text editor. All writes go
