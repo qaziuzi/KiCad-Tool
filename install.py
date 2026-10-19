@@ -20,6 +20,8 @@ Options:
     --no-register        do not add the libraries to KiCad's library tables
     --project            install the skill into ./.claude/skills instead of
                          your user-wide ~/.claude/skills
+    --mcp                also register the MCP server with Claude Desktop,
+                         which makes the tools available in chat
     --allow-temp-location  install even from a temp or Downloads folder
 """
 
@@ -214,6 +216,22 @@ def resolve_library_dir(explicit: str | None) -> str | None:
         info("Found by reading the user libraries in KiCad's sym-lib-table.")
         return detected
 
+    # Detection can fail transiently - KiCad's tables unreadable, a different
+    # APPDATA, a half-finished install. A previously configured folder that
+    # still exists is far better evidence than the fallback default, and
+    # silently replacing it would point the tool at an empty directory.
+    existing = os.path.join(ROOT, "config.json")
+    if os.path.isfile(existing):
+        try:
+            with open(existing, "r", encoding="utf-8") as fh:
+                prior = (json.load(fh) or {}).get("library_dir")
+        except (OSError, json.JSONDecodeError):
+            prior = None
+        if prior and os.path.isdir(str(prior)):
+            ok(f"keeping       {prior}")
+            info("Could not detect it this time; kept what config.json already had.")
+            return str(prior)
+
     # A new KiCad user has no personal libraries yet, so there is nothing to
     # detect. That is normal, not an error - pick a sensible home and say so.
     default = os.path.join(os.path.expanduser("~"), "Documents", "KiCad",
@@ -361,6 +379,80 @@ def register_libraries(categories: list[str], skip: bool) -> bool:
     return True
 
 
+def _desktop_config_path() -> str | None:
+    """Claude Desktop's config, per platform."""
+    if os.name == "nt":
+        appdata = os.environ.get("APPDATA")
+        return os.path.join(appdata, "Claude", "claude_desktop_config.json") if appdata else None
+    home = os.path.expanduser("~")
+    mac = os.path.join(home, "Library", "Application Support", "Claude",
+                       "claude_desktop_config.json")
+    if os.path.isdir(os.path.dirname(mac)):
+        return mac
+    return os.path.join(home, ".config", "Claude", "claude_desktop_config.json")
+
+
+def install_mcp(enable: bool) -> None:
+    """
+    Register the MCP server with Claude Desktop so chat can use it too.
+
+    Opt-in: this edits an application config that is not ours, so it only runs
+    when asked. Everything already in the file is preserved and a .bak is
+    written first.
+    """
+    step("MCP server (Claude Desktop chat)")
+    if not enable:
+        warn("skipped - pass --mcp to register it")
+        info("Without this the tools are available in Claude Code only.")
+        return
+
+    server = os.path.join(ROOT, "scripts", "mcp_server.py")
+    if not os.path.isfile(server):
+        fail(f"missing {server}")
+        return
+
+    cfg = _desktop_config_path()
+    if not cfg:
+        fail("could not work out where Claude Desktop keeps its config")
+        return
+
+    entry = {"command": sys.executable.replace("\\", "/"),
+             "args": [server.replace("\\", "/")]}
+
+    data: dict = {}
+    if os.path.isfile(cfg):
+        try:
+            with open(cfg, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, json.JSONDecodeError) as exc:
+            fail(f"could not read {cfg}: {exc}")
+            info("Fix or remove that file, then re-run.")
+            return
+        shutil.copy2(cfg, cfg + ".bak")
+    else:
+        os.makedirs(os.path.dirname(cfg), exist_ok=True)
+
+    servers = data.setdefault("mcpServers", {})
+    existing = servers.get("kicad-part-maker")
+    servers["kicad-part-maker"] = entry
+
+    try:
+        with open(cfg, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2)
+            fh.write("\n")
+    except OSError as exc:
+        fail(f"could not write {cfg}: {exc}")
+        return
+
+    ok("updated" if existing else "registered" + f"   {cfg}")
+    if existing and existing != entry:
+        info("replaced an earlier entry that pointed elsewhere")
+    others = [k for k in servers if k != "kicad-part-maker"]
+    if others:
+        info(f"left your other servers alone: {', '.join(others)}")
+    info("Restart Claude Desktop, then the tools appear in chat.")
+
+
 def build_indexes(skip: bool) -> None:
     step("Search indexes")
     if skip:
@@ -419,6 +511,8 @@ def main() -> int:
     ap.add_argument("--no-register", action="store_true",
                     help="do not touch KiCad's library tables")
     ap.add_argument("--project", action="store_true")
+    ap.add_argument("--mcp", action="store_true",
+                    help="register the MCP server with Claude Desktop")
     ap.add_argument("--allow-temp-location", action="store_true",
                     help="install even from a temporary folder")
     args = ap.parse_args()
@@ -454,6 +548,7 @@ def main() -> int:
     create_libraries(library_dir, categories)
     write_config(library_dir, categories)
     install_skill(args.project)
+    install_mcp(args.mcp)
     registered = register_libraries(categories, args.no_register)
     build_indexes(args.skip_index)
     verify()

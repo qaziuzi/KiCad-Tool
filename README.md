@@ -3,7 +3,10 @@
 A Claude Code skill that builds KiCad parts from a distributor link, a
 datasheet screenshot, or a BOM — and refuses to write anything it cannot check.
 
-> **Claude Code only.** It runs Python and `kicad-cli` on your machine and
+> **Also available as an MCP server**, which puts the same tools in Claude
+> Desktop chat — see [Using it from chat](#using-it-from-chat).
+>
+> **Claude Code, or Claude Desktop via MCP.** It runs Python and `kicad-cli` on your machine and
 > edits your KiCad libraries in place, so it needs local filesystem access.
 > The CLI, the desktop app's Code pane, and the IDE extensions all work.
 > Claude chat on claude.ai cannot reach your machine, so it will not appear
@@ -109,6 +112,43 @@ To see what it would do without changing anything:
 ```bash
 python scripts/register.py
 ```
+
+---
+
+## Using it from chat
+
+The skill is Claude Code only, but the same tools are exposed as a local MCP
+server, so Claude Desktop chat can use them:
+
+```bash
+python install.py --mcp
+```
+
+That adds one entry to `claude_desktop_config.json` (backing it up first and
+leaving any other servers alone). Restart Claude Desktop and twelve tools
+appear in chat: `find_symbol`, `find_footprint`, `make_part`, `promote_part`,
+`lcsc_fetch`, `generate_symbol`, `generate_footprint`, and so on.
+
+It runs **locally**, which is the point — it needs your KiCad install and your
+library folder. For the same reason claude.ai in a browser cannot use it: that
+only accepts remote HTTPS connectors, and your libraries are on your machine.
+
+To wire it up by hand instead:
+
+```json
+{
+  "mcpServers": {
+    "kicad-part-maker": {
+      "command": "<path to python.exe>",
+      "args": ["<path to repo>/scripts/mcp_server.py"]
+    }
+  }
+}
+```
+
+Chat has no `CONVENTIONS.md` loaded the way the skill does, so the tool
+descriptions carry the important rules themselves — `make_part` is dry-run by
+default and parts land in the staging library either way.
 
 ---
 
