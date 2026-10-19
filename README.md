@@ -196,8 +196,8 @@ look there for a Python traceback if it starts and then dies.
 
 ### What you do and don't get
 
-Twelve tools: `kicad_status`, `find_symbol`, `symbol_info`, `find_footprint`,
-`footprint_info`, `make_part`, `list_staged`, `promote_part`, `lcsc_fetch`,
+Thirteen tools: `kicad_status`, `find_symbol`, `symbol_info`, `find_footprint`,
+`footprint_info`, `get_conventions`, `make_part`, `list_staged`, `promote_part`, `lcsc_fetch`,
 `generate_symbol`, `generate_footprint`, `read_bom`.
 
 Chat does not load `CONVENTIONS.md` the way the skill does, so the tool
@@ -267,11 +267,22 @@ Every write is atomic and leaves a `.bak`.
 
 ## Conventions are yours
 
-`CONVENTIONS.md` is the rulebook — categories, naming, the field set, footprint
-preference order. The skill reads it before making anything. **Edit that file,
-not the code.**
+`CONVENTIONS.md` is the rulebook — categories, naming, the exact field set,
+footprint preference order. **Edit that file, not the code.**
 
-The shipped defaults are one working setup, not a prescription.
+It is genuinely yours:
+
+- `install.py` creates it from `CONVENTIONS.template.md` on a fresh install
+- it is **gitignored**, so your edits never conflict on `git pull`
+- re-running `install.py` never overwrites it
+- the shipped defaults are one working setup, not a prescription
+
+Both front ends read it. The skill reads the file before every part; over MCP
+the `get_conventions` tool serves it, and `make_part` is told to call that
+first — otherwise chat would quietly apply its own defaults instead of yours.
+
+Change a rule and both follow it on the next part. To start over, delete
+`CONVENTIONS.md` and re-run `python install.py`.
 
 ---
 
@@ -356,7 +367,8 @@ python scripts/symsource.py --rebuild
 | Path | What it is |
 |---|---|
 | `install.py` | One-command setup |
-| `CONVENTIONS.md` | **Your rulebook.** Edit this |
+| `CONVENTIONS.md` | **Your rulebook.** Edit this. Gitignored; seeded from the template |
+| `CONVENTIONS.template.md` | The shipped default `install.py` seeds from |
 | `config.json` | Library location and categories (written by `install.py`, gitignored) |
 | `skill/SKILL.md` | The skill template. `install.py` copies it to `~/.claude/skills/mkpart/`, substituting the tool path |
 | `scripts/kicadlib.py` | S-expression reader/writer. Owns every write |

@@ -101,7 +101,7 @@ def step(title):
 # --------------------------------------------------------------------------
 
 
-def check_location() -> bool:
+def check_location(allow: bool = False) -> bool:
     """
     Refuse to install from a folder that will not survive.
 
@@ -132,9 +132,15 @@ def check_location() -> bool:
         ok(f"running from     {ROOT}")
         return True
 
-    fail("this folder is not a safe home for the tool")
+    # When the user has explicitly overridden, this is a warning they accepted,
+    # not a failure - recording it as one makes install.py exit non-zero on a
+    # run that actually succeeded.
+    (warn if allow else fail)("this folder is not a safe home for the tool")
     for m in temp_markers:
         info(f"- {m}")
+    if allow:
+        info("--allow-temp-location given, continuing anyway.")
+        return True
     info("")
     info("The skill records this absolute path, so it must not move or be")
     info("cleaned up. Move the folder somewhere permanent, then re-run:")
@@ -557,7 +563,7 @@ def main() -> int:
             print("--categories was empty")
             return 1
 
-    if not check_location() and not args.allow_temp_location:
+    if not check_location(args.allow_temp_location):
         print(f"\n{RED}Setup stopped.{RESET}")
         return 1
 
