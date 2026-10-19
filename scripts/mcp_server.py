@@ -269,7 +269,18 @@ def t_read_bom(args: Dict) -> str:
 # --------------------------------------------------------------------------
 
 def _obj(props: Dict, required: Optional[List[str]] = None) -> Dict:
-    return {"type": "object", "properties": props, "required": required or []}
+    """
+    A JSON Schema for a tool's arguments.
+
+    `required` is omitted when empty rather than emitted as []. An empty
+    required list is legal but unusual, and the no-argument tools are exactly
+    the ones a strict client is most likely to mishandle - there is nothing to
+    gain by sending it.
+    """
+    schema: Dict[str, Any] = {"type": "object", "properties": props}
+    if required:
+        schema["required"] = required
+    return schema
 
 
 TOOLS: List[Dict[str, Any]] = [
