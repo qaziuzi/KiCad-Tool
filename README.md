@@ -140,15 +140,22 @@ python scripts/mcp_server.py --selftest
 ```
 
 ```
-kicad-part-maker 1.0.0
+kicad-part-maker 1.0.1
   ok   handshake
-  ok   12 tools advertised
+  ok   13 tools advertised
   ok   kicad_status: {...}
   ok   find_footprint: {...}
+  ok   get_conventions: # Rulebook, read from ...
+  ---  stdout encoding: utf-8
 ```
 
 If that passes, the server is fine and any remaining problem is the client
 config. If it fails, fix that first — the errors say what broke.
+
+It also checks every reply can be encoded for the wire. MCP stdio is UTF-8,
+but Python on Windows defaults stdout to the system ANSI codepage, and a
+single non-ASCII character in a response will otherwise kill the server
+mid-write. The server forces UTF-8 at startup; this line confirms it took.
 
 ### Wiring it up by hand
 
@@ -191,20 +198,42 @@ single backslash, and that is the usual reason the file silently fails to load.
 3. Do both paths exist exactly as written, including spaces?
 4. Does `--selftest` pass?
 
-The server logs to stderr, which Claude Desktop captures in its MCP logs —
-look there for a Python traceback if it starts and then dies.
+### If some tools are missing, or it worked and then stopped
 
-### What you do and don't get
+A client that shows *fewer* tools than `--selftest` reports is usually holding
+a stale list from a server process that died. Fully quit and reopen it; the
+count should match.
 
-Thirteen tools: `kicad_status`, `find_symbol`, `symbol_info`, `find_footprint`,
-`footprint_info`, `get_conventions`, `make_part`, `list_staged`, `promote_part`, `lcsc_fetch`,
-`generate_symbol`, `generate_footprint`, `read_bom`.
+The server logs to stderr, which Claude Desktop captures in its MCP logs. Look
+there for a Python traceback — `Server transport closed unexpectedly` means the
+process exited rather than failed a call, and the traceback above it says why.
 
-Chat does not load `CONVENTIONS.md` the way the skill does, so the tool
-descriptions carry the essential rules themselves — `make_part` is dry-run by
-default, parts land in the staging library either way, and the footprint search
-warns about lookalike packages. It is a slightly thinner experience than the
-skill, which follows a written procedure end to end.
+### What you get
+
+Thirteen tools:
+
+| Tool | For |
+|---|---|
+| `get_conventions` | your rulebook — **read before making a part** |
+| `kicad_status` | which KiCad, library folder and categories resolved |
+| `find_symbol` `symbol_info` | stock KiCad symbols |
+| `find_footprint` `footprint_info` | every installed footprint |
+| `make_part` | build and write a part, dry-run by default |
+| `list_staged` `promote_part` | the review workflow |
+| `lcsc_fetch` | LCSC/EasyEDA fallback |
+| `generate_symbol` `generate_footprint` | from a datasheet |
+| `read_bom` | part numbers out of a spreadsheet |
+
+**Your conventions apply here too**, via `get_conventions` — `make_part`'s
+description tells the model to read it first. That matters, because `make_part`
+only enforces the *hard* checks in code: pad count equals pin count, the
+footprint exists, `Reference` is letters-only, no duplicate symbol. Naming, the
+field set and footprint preference are not enforced — they come from whoever
+writes the spec. Without the rulebook in hand, parts get built to defaults and
+nothing stops it.
+
+It is still a slightly thinner experience than the skill, which follows a
+written procedure end to end rather than relying on tool descriptions.
 
 **claude.ai in a browser cannot use this.** It only accepts remote HTTPS
 connectors, and this server runs on your machine because that is where your
