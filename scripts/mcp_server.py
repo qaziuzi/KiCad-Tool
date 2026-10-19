@@ -45,6 +45,34 @@ def _fmt(obj: Any) -> str:
     return json.dumps(obj, indent=2, ensure_ascii=False)
 
 
+def _root() -> str:
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def t_get_conventions(_: Dict) -> str:
+    """
+    The user's rulebook, verbatim.
+
+    The skill reads CONVENTIONS.md before making anything. Chat has no such
+    mechanism, so without this tool every MCP-made part silently ignores the
+    user's naming, field and footprint rules - which is the whole point of
+    having a rulebook.
+    """
+    path = os.path.join(_root(), "CONVENTIONS.md")
+    if not os.path.isfile(path):
+        template = os.path.join(_root(), "CONVENTIONS.template.md")
+        if os.path.isfile(template):
+            return (f"No CONVENTIONS.md yet. Run `python install.py` to create one "
+                    f"from the template, or copy {template} to {path}.")
+        return f"No conventions file found at {path}."
+    with open(path, "r", encoding="utf-8") as fh:
+        text = fh.read()
+    return (f"# Rulebook, read from {path}\n"
+            f"# The user edits this file; follow it over any default behaviour.\n"
+            f"# To change how parts are made, they edit this file - not the code.\n\n"
+            + text)
+
+
 def t_status(_: Dict) -> str:
     import config as cfg_mod
     cfg = cfg_mod.load()
@@ -232,6 +260,19 @@ def _obj(props: Dict, required: Optional[List[str]] = None) -> Dict:
 
 TOOLS: List[Dict[str, Any]] = [
     {
+        "name": "get_conventions",
+        "description": "READ THIS FIRST, before making or promoting any part. "
+                       "Returns the user's rulebook (CONVENTIONS.md): which "
+                       "categories exist and what goes in each, how symbols are "
+                       "named, the exact field set every part carries, and the "
+                       "order to prefer footprints in. The user edits that file "
+                       "to change how parts are made, so it overrides any default "
+                       "you would otherwise apply. If they ask to change a "
+                       "convention, point them at the path this returns.",
+        "inputSchema": _obj({}),
+        "_fn": t_get_conventions,
+    },
+    {
         "name": "kicad_status",
         "description": "Show which KiCad install, library folder and categories the "
                        "part maker resolved. Call this first if anything looks wrong.",
@@ -283,7 +324,10 @@ TOOLS: List[Dict[str, Any]] = [
     {
         "name": "make_part",
         "description": "Build a part from a spec and write it to the staging "
-                       "library. DRY RUN BY DEFAULT - call once without commit, show "
+                       "library. CALL get_conventions FIRST - naming, the field "
+                       "set and footprint preference all come from the user's "
+                       "rulebook, not from defaults. "
+                       "DRY RUN BY DEFAULT - call once without commit, show "
                        "the result to the user, then call again with commit=true. "
                        "Refuses to write if pad count != pin count, the footprint "
                        "does not exist, Reference is not letters-only, or the symbol "

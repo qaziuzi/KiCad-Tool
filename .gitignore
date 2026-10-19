@@ -34,3 +34,7 @@ desktop.ini
 # A project-scoped install of the skill (install.py --project). Machine
 # specific: it has the absolute tool path substituted in.
 .claude/skills/
+
+# Your rulebook. install.py seeds it from CONVENTIONS.template.md on a fresh
+# install and never overwrites it; your edits stay yours.
+CONVENTIONS.md

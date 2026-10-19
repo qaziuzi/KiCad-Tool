@@ -302,6 +302,31 @@ def write_config(library_dir: str, categories: list[str]) -> None:
     info(f"staging library: {data['staging_category']}")
 
 
+def seed_conventions() -> None:
+    """
+    Give the user their own rulebook, seeded from the shipped template.
+
+    CONVENTIONS.md is the one file people are meant to edit, so it is not
+    tracked by git: a fresh install gets the template, and an existing copy is
+    never touched - no overwrites on re-install, no merge conflicts on pull.
+    """
+    step("Conventions")
+    target = os.path.join(ROOT, "CONVENTIONS.md")
+    template = os.path.join(ROOT, "CONVENTIONS.template.md")
+
+    if os.path.isfile(target):
+        ok(f"yours already   {target}")
+        info("Left untouched. Edit it to change how parts get made.")
+        return
+    if not os.path.isfile(template):
+        fail(f"missing {template}")
+        return
+    shutil.copy2(template, target)
+    ok(f"created         {target}")
+    info("Seeded from CONVENTIONS.template.md. It is yours now - edit it to")
+    info("set your categories, naming, fields and footprint preferences.")
+
+
 def install_skill(project: bool) -> str | None:
     step("Skill")
     # The template lives in skill/, deliberately NOT in .claude/skills/.
@@ -547,6 +572,7 @@ def main() -> int:
 
     create_libraries(library_dir, categories)
     write_config(library_dir, categories)
+    seed_conventions()
     install_skill(args.project)
     install_mcp(args.mcp)
     registered = register_libraries(categories, args.no_register)
@@ -574,6 +600,7 @@ def main() -> int:
             "       Preferences > Manage Footprint Libraries -> the .pretty folders",
             f"       in {library_dir}",
         ])
+    conventions = os.path.join(ROOT, "CONVENTIONS.md")
     print(f"""
 Next:
   1. {step_one}
@@ -582,8 +609,11 @@ Next:
        /mkpart https://www.digikey.com/en/products/detail/...
        /mkpart <drop a screenshot of a pinout>
 
-  3. Edit CONVENTIONS.md to match how you name and field your parts.
-     That file is the rulebook; the skill follows it.
+  3. Edit CONVENTIONS.md to match how you name and field your parts:
+       {conventions}
+     That file is the rulebook. The skill reads it before every part, and in
+     chat the MCP server serves it via the get_conventions tool. It is yours:
+     git ignores it and re-running install.py never overwrites it.
 """)
     return 0
 
