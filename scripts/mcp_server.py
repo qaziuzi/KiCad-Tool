@@ -434,7 +434,55 @@ def handle(msg: Dict) -> Optional[Dict]:
     return _error(req_id, -32601, f"method not found: {method}")
 
 
+def selftest() -> int:
+    """
+    Prove the server works without a client attached.
+
+    Runs the real handshake and a couple of real tool calls in-process, so a
+    failure here is the tool's fault and a pass means any problem is in the
+    client config rather than the server.
+    """
+    print(f"{SERVER_NAME} {SERVER_VERSION}")
+    print(f"  python   {sys.version.split()[0]}")
+    print(f"  server   {os.path.abspath(__file__)}")
+    print()
+
+    failures = 0
+
+    init = handle({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                   "params": {"protocolVersion": DEFAULT_PROTOCOL}})
+    name = (init or {}).get("result", {}).get("serverInfo", {}).get("name")
+    print(f"  {'ok  ' if name == SERVER_NAME else 'FAIL'} handshake")
+    failures += name != SERVER_NAME
+
+    listed = handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+    tools = (listed or {}).get("result", {}).get("tools", [])
+    print(f"  {'ok  ' if tools else 'FAIL'} {len(tools)} tools advertised")
+    failures += not tools
+
+    for tool, args in (("kicad_status", {}),
+                       ("find_footprint", {"package": "0603", "pins": 2, "limit": 1})):
+        reply = handle({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                        "params": {"name": tool, "arguments": args}})
+        res = (reply or {}).get("result", {})
+        bad = res.get("isError", True)
+        first = res.get("content", [{}])[0].get("text", "")[:70].replace("\n", " ")
+        print(f"  {'FAIL' if bad else 'ok  '} {tool}: {first}")
+        failures += bool(bad)
+
+    print()
+    if failures:
+        print(f"{failures} check(s) failed. Fix those before wiring up a client.")
+        return 1
+    print("All checks passed. If a client still shows no tools, the problem is")
+    print("its config: check the command and args point at exactly these paths,")
+    print("and restart it fully.")
+    return 0
+
+
 def main() -> int:
+    if "--selftest" in sys.argv:
+        return selftest()
     log(f"started (pid {os.getpid()}), {len(TOOLS)} tools")
     stdin = sys.stdin
     for line in stdin:

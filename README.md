@@ -3,14 +3,14 @@
 A Claude Code skill that builds KiCad parts from a distributor link, a
 datasheet screenshot, or a BOM — and refuses to write anything it cannot check.
 
-> **Also available as an MCP server**, which puts the same tools in Claude
-> Desktop chat — see [Using it from chat](#using-it-from-chat).
+> **Runs on your machine.** It drives Python and `kicad-cli` and edits your
+> KiCad libraries in place, so it needs local filesystem access.
 >
-> **Claude Code, or Claude Desktop via MCP.** It runs Python and `kicad-cli` on your machine and
-> edits your KiCad libraries in place, so it needs local filesystem access.
-> The CLI, the desktop app's Code pane, and the IDE extensions all work.
-> Claude chat on claude.ai cannot reach your machine, so it will not appear
-> there.
+> | Where | How |
+> |---|---|
+> | Claude Code — CLI, desktop Code pane, IDE extensions | the `/mkpart` skill |
+> | Claude Desktop chat | the [MCP server](#using-it-from-chat-mcp) |
+> | claude.ai in a browser | not possible — no access to your machine |
 
 ```
 /mkpart https://www.digikey.com/en/products/detail/...
@@ -115,40 +115,100 @@ python scripts/register.py
 
 ---
 
-## Using it from chat
+## Using it from chat (MCP)
 
-The skill is Claude Code only, but the same tools are exposed as a local MCP
-server, so Claude Desktop chat can use them:
+The `/mkpart` skill is Claude Code only. The same tools are also exposed as a
+local MCP server, which **Claude Desktop chat** can use.
+
+### Setup
 
 ```bash
 python install.py --mcp
 ```
 
-That adds one entry to `claude_desktop_config.json` (backing it up first and
-leaving any other servers alone). Restart Claude Desktop and twelve tools
-appear in chat: `find_symbol`, `find_footprint`, `make_part`, `promote_part`,
-`lcsc_fetch`, `generate_symbol`, `generate_footprint`, and so on.
+That does the full install *and* registers the server. Then **quit Claude
+Desktop completely and reopen it** — closing the window is not enough; use
+tray → Quit on Windows, or Cmd-Q on macOS.
 
-It runs **locally**, which is the point — it needs your KiCad install and your
-library folder. For the same reason claude.ai in a browser cannot use it: that
-only accepts remote HTTPS connectors, and your libraries are on your machine.
+Ask it something like *"what KiCad libraries am I set up with?"*. If it calls
+`kicad_status`, you are done.
 
-To wire it up by hand instead:
+### Check it before blaming the client
+
+```bash
+python scripts/mcp_server.py --selftest
+```
+
+```
+kicad-part-maker 1.0.0
+  ok   handshake
+  ok   12 tools advertised
+  ok   kicad_status: {...}
+  ok   find_footprint: {...}
+```
+
+If that passes, the server is fine and any remaining problem is the client
+config. If it fails, fix that first — the errors say what broke.
+
+### Wiring it up by hand
+
+`install.py --mcp` edits this file, which you can also edit yourself:
+
+| OS | Config file |
+|---|---|
+| Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
+| macOS | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Linux | `~/.config/Claude/claude_desktop_config.json` |
+
+It may not exist yet — create it. Add the `kicad-part-maker` entry, keeping any
+servers already there:
 
 ```json
 {
   "mcpServers": {
     "kicad-part-maker": {
-      "command": "<path to python.exe>",
-      "args": ["<path to repo>/scripts/mcp_server.py"]
+      "command": "C:/Users/you/AppData/Local/Programs/Python/Python312/python.exe",
+      "args": ["C:/Users/you/kicad-part-maker/scripts/mcp_server.py"]
     }
   }
 }
 ```
 
-Chat has no `CONVENTIONS.md` loaded the way the skill does, so the tool
-descriptions carry the important rules themselves — `make_part` is dry-run by
-default and parts land in the staging library either way.
+Both must be **absolute paths**. Get the exact ones for your machine:
+
+```bash
+python -c "import sys; print(sys.executable)"          # the command
+python -c "import os; print(os.path.abspath('scripts/mcp_server.py'))"
+```
+
+On Windows use forward slashes, or escape backslashes as `\\`. JSON rejects a
+single backslash, and that is the usual reason the file silently fails to load.
+
+### If no tools appear
+
+1. Did you **fully quit** Claude Desktop, not just close the window?
+2. Is the JSON valid? `python -m json.tool <config file>` will say.
+3. Do both paths exist exactly as written, including spaces?
+4. Does `--selftest` pass?
+
+The server logs to stderr, which Claude Desktop captures in its MCP logs —
+look there for a Python traceback if it starts and then dies.
+
+### What you do and don't get
+
+Twelve tools: `kicad_status`, `find_symbol`, `symbol_info`, `find_footprint`,
+`footprint_info`, `make_part`, `list_staged`, `promote_part`, `lcsc_fetch`,
+`generate_symbol`, `generate_footprint`, `read_bom`.
+
+Chat does not load `CONVENTIONS.md` the way the skill does, so the tool
+descriptions carry the essential rules themselves — `make_part` is dry-run by
+default, parts land in the staging library either way, and the footprint search
+warns about lookalike packages. It is a slightly thinner experience than the
+skill, which follows a written procedure end to end.
+
+**claude.ai in a browser cannot use this.** It only accepts remote HTTPS
+connectors, and this server runs on your machine because that is where your
+KiCad install and libraries are. Desktop app: yes. Browser: no.
 
 ---
 
