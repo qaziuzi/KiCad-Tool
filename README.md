@@ -411,17 +411,28 @@ python scripts/symsource.py --rebuild
 | `scripts/register.py` | Add the libraries to KiCad's global lib tables |
 | `scripts/readbom.py` | Read `.xlsx`/`.csv` BOMs |
 | `scripts/selftest.py` | Round-trip proof against real libraries |
+| `scripts/checkdocs.py` | Fails if the README and the code disagree |
 
 ---
 
 ## Testing
 
 ```bash
+python scripts/checkdocs.py        # README and code still agree?
+python scripts/mcp_server.py --selftest
 python scripts/selftest.py "C:/Program Files/KiCad/10.0/share/kicad/symbols/**/*.kicad_sym"
 ```
 
 Parses and rewrites every symbol file, then compares. Point it at your own
 libraries too — it never modifies anything it reads.
+
+`checkdocs.py` asks the running MCP server what it offers and compares that
+against this README: every tool named, the count in both digits and words, the
+server version, the sample `--selftest` output, every tracked script in the
+Files table, and every `install.py` flag documented somewhere. Run it before
+publishing. Documentation written alongside a change is usually right; the
+dangerous kind is documentation invalidated by a *later* change, because
+nothing else flags it.
 
 ---
 
