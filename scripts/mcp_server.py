@@ -26,8 +26,22 @@ from typing import Any, Callable, Dict, List, Optional
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 SERVER_NAME = "kicad-part-maker"
-SERVER_VERSION = "1.0.0"
+SERVER_VERSION = "1.0.1"
 DEFAULT_PROTOCOL = "2024-11-05"
+
+# MCP stdio is UTF-8. Python on Windows defaults stdout to the system ANSI
+# codepage instead - cp1256, cp1252, whatever the machine is set to - and any
+# non-ASCII character in a response then raises UnicodeEncodeError mid-write,
+# killing the server. A rulebook containing a single "→" was enough.
+for _stream in ("stdin", "stdout"):
+    try:
+        getattr(sys, _stream).reconfigure(encoding="utf-8", newline="\n")
+    except (AttributeError, ValueError, OSError):
+        pass
+try:
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except (AttributeError, ValueError, OSError):
+    pass
 
 
 def log(msg: str) -> None:
@@ -504,16 +518,30 @@ def selftest() -> int:
     print(f"  {'ok  ' if tools else 'FAIL'} {len(tools)} tools advertised")
     failures += not tools
 
+    # get_conventions returns the user's rulebook, which is the largest and
+    # least ASCII payload the server sends - exactly what broke it once.
     for tool, args in (("kicad_status", {}),
-                       ("find_footprint", {"package": "0603", "pins": 2, "limit": 1})):
+                       ("find_footprint", {"package": "0603", "pins": 2, "limit": 1}),
+                       ("get_conventions", {})):
         reply = handle({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
                         "params": {"name": tool, "arguments": args}})
         res = (reply or {}).get("result", {})
         bad = res.get("isError", True)
-        first = res.get("content", [{}])[0].get("text", "")[:70].replace("\n", " ")
+        first = res.get("content", [{}])[0].get("text", "")[:60].replace("\n", " ")
         print(f"  {'FAIL' if bad else 'ok  '} {tool}: {first}")
         failures += bool(bad)
 
+        # Can this reply actually reach the client? A non-ASCII character in a
+        # response used to raise mid-write on a console whose codepage is not
+        # UTF-8, which kills the server rather than failing one call.
+        enc = getattr(sys.stdout, "encoding", None) or "ascii"
+        try:
+            json.dumps(reply, ensure_ascii=True).encode(enc)
+        except (UnicodeEncodeError, LookupError) as exc:
+            print(f"  FAIL {tool}: reply is not encodable as {enc}: {exc}")
+            failures += 1
+
+    print(f"  ---  stdout encoding: {getattr(sys.stdout, 'encoding', '?')}")
     print()
     if failures:
         print(f"{failures} check(s) failed. Fix those before wiring up a client.")
@@ -522,6 +550,30 @@ def selftest() -> int:
     print("its config: check the command and args point at exactly these paths,")
     print("and restart it fully.")
     return 0
+
+
+def _write(reply: Dict) -> None:
+    """
+    Send one response.
+
+    ensure_ascii escapes every non-ASCII character as \\uXXXX, so the bytes
+    on the wire are pure ASCII and encodable whatever the console codepage is.
+    Clients decode the escapes back; this is still valid JSON. Belt and braces
+    alongside the UTF-8 reconfigure at import, because a write that raises here
+    takes the whole server down mid-conversation.
+    """
+    try:
+        sys.stdout.write(json.dumps(reply, ensure_ascii=True) + "\n")
+        sys.stdout.flush()
+    except Exception as exc:  # noqa: BLE001
+        log(f"could not write response: {type(exc).__name__}: {exc}")
+        try:
+            sys.stdout.write(json.dumps(_error(
+                reply.get("id"), -32603,
+                f"response could not be serialised: {type(exc).__name__}")) + "\n")
+            sys.stdout.flush()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def main() -> int:
@@ -544,8 +596,7 @@ def main() -> int:
             log(f"handler crashed: {exc}\n{traceback.format_exc()}")
             reply = _error(msg.get("id"), -32603, str(exc))
         if reply is not None:
-            sys.stdout.write(json.dumps(reply, ensure_ascii=False) + "\n")
-            sys.stdout.flush()
+            _write(reply)
     log("stdin closed, exiting")
     return 0
 
