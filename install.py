@@ -310,7 +310,8 @@ def write_config(library_dir: str, categories: list[str]) -> None:
     info(f"staging library: {data['staging_category']}")
 
 
-def setup_conventions(use_defaults: bool, wanted: list[str] | None) -> list[str]:
+def setup_conventions(use_defaults: bool, wanted: list[str] | None,
+                      library_dir: str) -> list[str]:
     """
     The user's own settings: library names and naming patterns.
 
@@ -323,6 +324,8 @@ def setup_conventions(use_defaults: bool, wanted: list[str] | None) -> list[str]
     import conventions
 
     first_time = not os.path.isfile(conventions.PATH)
+    existing = [f[:-len(".kicad_sym")] for f in os.listdir(library_dir)
+                if f.endswith(".kicad_sym")] if os.path.isdir(library_dir) else []
     if first_time and wanted:
         data = conventions.defaults()
         data["libraries"] = [{"name": wanted[0], "role": "staging"}] + [
@@ -330,7 +333,7 @@ def setup_conventions(use_defaults: bool, wanted: list[str] | None) -> list[str]
         conventions.save(data)
         ok("library names taken from --categories")
     elif first_time and not use_defaults and sys.stdin.isatty():
-        conventions.wizard()
+        conventions.wizard(existing)
     elif first_time:
         conventions.save(conventions.defaults())
         ok("defaults written")
@@ -594,7 +597,7 @@ def main() -> int:
     if not library_dir:
         return 1
 
-    categories = setup_conventions(args.defaults, wanted)
+    categories = setup_conventions(args.defaults, wanted, library_dir)
     create_libraries(library_dir, categories)
     write_config(library_dir, categories)
     install_skill(args.project)

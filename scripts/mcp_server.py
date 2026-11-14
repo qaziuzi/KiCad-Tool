@@ -374,7 +374,7 @@ TOOLS: List[Dict[str, Any]] = [
                        "already correct. Check pin count and package against the "
                        "datasheet, since families differ by a package suffix.",
         "inputSchema": _obj({
-            "query": {"type": "string", "description": "MPN or family, e.g. 'BAV99'"},
+            "query": {"type": "string", "description": "MPN or family, e.g. 'LM358'"},
             "limit": {"type": "integer", "default": 15},
         }, ["query"]),
         "_fn": t_find_symbol,

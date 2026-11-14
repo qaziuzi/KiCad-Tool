@@ -55,8 +55,8 @@ EXAMPLES = {
     "inductor": {"value": "4u7", "current": "2.2A", "package": "1210"},
     "ferrite": {"impedance": "600R", "current": "2A", "package": "0805"},
     "crystal": {"frequency": "8MHz", "load": "18pF", "package": "3225"},
-    "diode": {"mpn": "<part number>"}, "transistor": {"mpn": "<part number>"},
-    "ic": {"mpn": "<part number>"},
+    "diode": {"mpn": "NE555DR"}, "transistor": {"mpn": "NE555DR"},
+    "ic": {"mpn": "NE555DR"},
     "connector": {"positions": "4", "pitch": "2.54mm", "orientation": "Vertical"},
     "connector_series": {"series": "JST-XH", "positions": "4", "orientation": "Vertical"},
 }
@@ -315,8 +315,9 @@ def rename_library(old: str, new: str, tables: bool = True) -> List[str]:
 # --------------------------------------------------------------------------
 
 def _ask(prompt: str, default: str) -> str:
+    shown = f" [{default}]" if default else ""
     try:
-        answer = input(f"  {prompt} [{default}]: ").strip()
+        answer = input(f"  {prompt}{shown}: ").strip()
     except EOFError:
         answer = ""
     return answer or default
@@ -339,12 +340,15 @@ def wizard(existing_files: Optional[List[str]] = None) -> Dict:
     print("1. Library names")
     print("   Each becomes a symbol library and a footprint library of that name.\n")
     for lib in data["libraries"]:
-        label = "new parts land in" if lib.get("role") == "staging" else lib.get("holds", "")[:44]
+        what = ("Staging - every new part lands here until you review it"
+                if lib.get("role") == "staging" else lib.get("holds") or "")
+        print(f"   {what}")
         if lib["name"].lower() in locked:
-            print(f"  {label:<46} {lib['name']}   (exists - kept)")
+            print(f"     {lib['name']}   (already exists - kept)")
+            print()
             continue
         while True:
-            name = _ask(f"{label:<46}", lib["name"])
+            name = _ask("  name", lib["name"])
             try:
                 probe = json.loads(json.dumps(data))
                 next(x for x in probe["libraries"] if x["name"] == lib["name"])["name"] = name
@@ -353,8 +357,9 @@ def wizard(existing_files: Optional[List[str]] = None) -> Dict:
                 break
             except ConventionError as exc:
                 print(f"      {exc}")
+        print()
     while True:
-        extra = _ask("add another library? name, or Enter for none", "")
+        extra = _ask("Add another library? Type a name, or Enter to skip", "")
         if not extra:
             break
         holds = _ask("  what goes in it", "")
