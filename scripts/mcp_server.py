@@ -241,22 +241,22 @@ def t_generate_symbol(args: Dict) -> str:
 
 
 def t_generate_footprint(args: Dict) -> str:
-    import genfp, kicadlib as K
+    import genfp
     spec = args.get("spec")
     if isinstance(spec, str):
         spec = json.loads(spec)
-    out = args["out_dir"]
-    fp, land = genfp.build(spec)
-    os.makedirs(out, exist_ok=True)
-    path = os.path.join(out, spec["name"] + ".kicad_mod")
-    text = K.dump(fp)
-    K.parse(text)
-    with open(path, "w", encoding="utf-8", newline="") as fh:
-        fh.write(text)
-    return _fmt({"ok": True, "path": path,
-                 "mode": spec.get("mode", "ipc"),
-                 "land": {k: round(v, 4) for k, v in land.items()
-                          if isinstance(v, float)}})
+    try:
+        if args.get("check_only") or not args.get("out_dir"):
+            _, report = genfp.build(spec)
+            report.pop("_pads", None)
+            report["written"] = False
+        else:
+            report = genfp.generate(spec, args["out_dir"])
+            report["written"] = True
+    except genfp.SpecError as exc:
+        rep = {k: v for k, v in getattr(exc, "report", {}).items() if k != "_pads"}
+        return _fmt({"ok": False, "error": str(exc), "report": rep})
+    return _fmt({"ok": True, **report})
 
 
 def t_read_bom(args: Dict) -> str:
@@ -424,8 +424,9 @@ TOOLS: List[Dict[str, Any]] = [
                        "package dimension table when no recommended layout exists.",
         "inputSchema": _obj({
             "spec": {"type": "object"},
-            "out_dir": {"type": "string", "description": "a .pretty folder"},
-        }, ["spec", "out_dir"]),
+            "out_dir": {"type": "string", "description": "a .pretty folder; omit to validate only"},
+            "check_only": {"type": "boolean", "default": False},
+        }, ["spec"]),
         "_fn": t_generate_footprint,
     },
     {
