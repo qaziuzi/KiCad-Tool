@@ -1,0 +1,31 @@
+{
+  "libraries": [
+    { "name": "To Be Verified", "role": "staging",
+      "holds": "Every new part lands here until you have reviewed it" },
+    { "name": "Active Components",
+      "holds": "ICs, MCUs, regulators, op-amps, sensors - anything with internal circuitry" },
+    { "name": "Passives",
+      "holds": "Resistors, capacitors, inductors, ferrites, crystals, diodes" },
+    { "name": "Connectors",
+      "holds": "Headers, sockets, terminal blocks, USB, JST, FFC, test points" }
+  ],
+
+  "naming": {
+    "resistor":         "{value}_{tolerance}_{package}",
+    "capacitor":        "{value}_{voltage}_{package}_{dielectric}",
+    "inductor":         "{value}_{current}_{package}",
+    "ferrite":          "{impedance}_{current}_{package}",
+    "crystal":          "{frequency}_{load}_{package}",
+    "diode":            "{mpn}",
+    "transistor":       "{mpn}",
+    "ic":               "{mpn}",
+    "connector":        "{positions}P_{pitch}_{orientation}",
+    "connector_series": "{series}_{positions}P_{orientation}"
+  },
+
+  "reference": {
+    "resistor": "R", "capacitor": "C", "inductor": "L", "ferrite": "FB",
+    "crystal": "Y", "diode": "D", "transistor": "Q", "ic": "U",
+    "connector": "J", "connector_series": "J"
+  }
+}

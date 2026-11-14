@@ -15,8 +15,35 @@ is wherever the user is, which is usually not here.
 Turn a distributor link, screenshot, or part number into a finished part in the
 user's KiCad library.
 
-**Read `CONVENTIONS.md` at the project root first, every time.** It is the
-rulebook and the user edits it. It wins over anything in this file.
+**Before anything else, every time, read all three:**
+
+```bash
+python "{{TOOL_HOME}}/scripts/conventions.py" --show
+```
+
+- that output — the user's **settings**: what their libraries are called and
+  the naming pattern for each kind of part
+- `{{TOOL_HOME}}/CONVENTIONS.md` — the user's **notes**: what their fields hold,
+  how a description reads, where things go
+- `{{TOOL_HOME}}/RULES.md` — the **engineering rules**, the same for every
+  user: where a footprint may come from, when one may be generated, the review
+  step
+
+Settings and notes are the user's and win over anything here. The staging
+library may not be called "To Be Verified" — use the name the settings give.
+
+**If the user wants a convention changed** ("name my resistors R_10k_0402",
+"call the IC library Semiconductors"), change the setting rather than
+remembering it for this session:
+
+```bash
+python "{{TOOL_HOME}}/scripts/conventions.py" --set naming.resistor "R_{value}_{package}"
+python "{{TOOL_HOME}}/scripts/conventions.py" --add-library "Power" --holds "Modules, DC-DC"
+python "{{TOOL_HOME}}/scripts/conventions.py" --rename-library "Old" "New"
+```
+
+then show them `--show`. Renaming a library does not rewrite schematics that
+already use the old name — say so before doing it.
 
 ## The one rule
 
@@ -34,10 +61,10 @@ user which field is missing and why.
 
 ```
 input -> stock symbol? -> datasheet pinout -> stock footprint? -> generate
-      -> write to "To Be Verified" -> post review packet -> STOP
+      -> write to the staging library -> post review packet -> STOP
 ```
 
-Every part lands in **To Be Verified** and waits. The user reviews the packet and
+Every part lands in the **staging library** and waits. The user reviews the packet and
 names the destination; only then does it get promoted. Never write into a final
 library directly, and never promote without being told where.
 
@@ -105,7 +132,7 @@ code if shown. Values, tolerances and ratings for passives.
 
 ### 2. Category
 
-Always `"To Be Verified"`. Do not choose a final category — that is the user's
+Always the staging library from the settings. Do not choose a final category — that is the user's
 call after they have seen the part. If you have a view on where it belongs, say so
 in the review packet as a suggestion.
 
@@ -206,11 +233,29 @@ python "{{TOOL_HOME}}/scripts/genfp.py" spec.json \
   --out "<library_dir>/<Category>.pretty" --compare <Library>:<SimilarFootprint>
 ```
 
+Validate before writing anything:
+
+```bash
+python "{{TOOL_HOME}}/scripts/genfp.py" spec.json --check --compare <Library>:<SimilarFootprint>
+```
+
 - `mode: "manufacturer"` — transcribe the recommended layout. Preferred.
-  Always fill in `verify` with the drawing's redundant dimensions; the tool
-  re-derives them and rejects a mis-typed spec.
 - `mode: "ipc"` — compute IPC-7351B from the package dimension table, only when
   there is no recommended layout.
+
+**Either way the spec carries two independent sets of numbers** (`RULES.md` §4
+has the full list):
+
+- `verify` — the drawing's redundant dimensions (`row_pitch`,
+  `span_across_rows`, `gap_across_rows`, `pitch`). The tool re-derives them
+  from the pads.
+- `package.lead_span`, `foot_length`, `lead_width`, `pitch` — from the package
+  *outline* table. The tool places each lead foot on its pad and reports toe,
+  heel and side solder.
+
+A refusal means a number is wrong. Go back to the datasheet and find which —
+never loosen or delete a check to get a footprint through. Put the fit numbers
+and the copper gap in the review packet; they are what the user verifies.
 
 The two modes give genuinely different pads and that is expected — IPC targets a
 larger solder fillet. Do not "fix" a manufacturer-mode result to match KiCad.
@@ -224,7 +269,6 @@ Create `{{TOOL_HOME}}/staging/<name>.json`:
 
 ```json
 {
-  "category": "Active Components",
   "name": "<MPN>",
   "reference": "U",
   "value": "<MPN>",
@@ -247,11 +291,32 @@ Create `{{TOOL_HOME}}/staging/<name>.json`:
 | `file` | `"path": "staging/lcsc/<LCSC-id>/EasyEDA.kicad_sym", "symbol": "<name>"` — from LCSC |
 | `library` | `"category": "Passives", "symbol": "<name>"` — clone an existing part |
 
+`category` is left out: parts always land in the staging library.
+
+**For any part whose name follows a pattern** — every passive, generic
+connectors — do not compose the name yourself. Give the kind and the values and
+let the user's pattern build it:
+
+```bash
+python "{{TOOL_HOME}}/scripts/conventions.py" --name resistor value=10k tolerance=1% package=0402
+```
+
+and put the same in the spec, leaving `name` and `reference` out:
+
+```json
+  "kind": "resistor",
+  "name_parts": { "value": "10k", "tolerance": "1%", "package": "0402" },
+```
+
+`addpart.py` then builds the name and reference, and refuses a spec whose name
+departs from the pattern. A value the datasheet does not give is simply left
+out of `name_parts`; never invent one to fill a slot.
+
 Field names in `fields` must match `CONVENTIONS.md` §3 exactly. Do not put
 `Reference`, `Value`, `Footprint`, `Datasheet` or `Description` in there —
 they are top-level keys and `addpart.py` will reject the spec.
 
-### 6. Write it to To Be Verified
+### 6. Write it to the staging library
 
 ```bash
 python "{{TOOL_HOME}}/scripts/addpart.py" "{{TOOL_HOME}}/staging/<name>.json" --preview
@@ -259,7 +324,7 @@ python "{{TOOL_HOME}}/scripts/addpart.py" "{{TOOL_HOME}}/staging/<name>.json" --
 ```
 
 Run the preview first and read it; if it reports errors, fix the spec rather
-than forcing it through. Committing to `To Be Verified` does not need
+than forcing it through. Committing to the staging library does not need
 permission — that library exists to hold unreviewed work. Committing anywhere
 else does.
 
@@ -294,7 +359,7 @@ python "{{TOOL_HOME}}/scripts/promote.py" <symbol> --to "Passives" --commit
 
 Then confirm what moved — symbol, footprint, and the repointed reference.
 
-If they ask for corrections: fix the part in place in `To Be Verified`
+If they ask for corrections: fix the part in place in the staging library
 (`addpart.py ... --commit --replace`), post a fresh packet, and wait again.
 
 ---
@@ -315,7 +380,7 @@ footprint, not a bad check. Re-run the footprint search.
 
 ## Never
 
-- Never write into a final library — new parts go to `To Be Verified`
+- Never write into a final library — new parts go to the staging library
 - Never promote a part the user has not reviewed, or guess its destination
 - Never assign a pinout that did not come from a numbered datasheet pinout
 - Never use `--replace` without saying so

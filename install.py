@@ -13,7 +13,9 @@ and it tells you what it changed.
 
 Options:
     --library-dir PATH   where your personal .kicad_sym libraries live
-    --categories A,B,C   category names (default: To Be Verified, Active
+    --defaults           take the default library names and naming, ask nothing
+    --categories A,B,C   library names on a first install; the first is the
+                         staging library (default: To Be Verified, Active
                          Components, Passives, Connectors)
     --skip-deps          do not run pip
     --skip-index         do not build the footprint/symbol indexes
@@ -308,29 +310,43 @@ def write_config(library_dir: str, categories: list[str]) -> None:
     info(f"staging library: {data['staging_category']}")
 
 
-def seed_conventions() -> None:
+def setup_conventions(use_defaults: bool, wanted: list[str] | None) -> list[str]:
     """
-    Give the user their own rulebook, seeded from the shipped template.
+    The user's own settings: library names and naming patterns.
 
-    CONVENTIONS.md is the one file people are meant to edit, so it is not
-    tracked by git: a fresh install gets the template, and an existing copy is
-    never touched - no overwrites on re-install, no merge conflicts on pull.
+    On a first install at a real terminal this asks a few questions, because
+    the moment to choose what the libraries are called is before they exist.
+    Anywhere else - a script, a pipe, a re-install - it asks nothing.
+    Returns the library names to create.
     """
-    step("Conventions")
-    target = os.path.join(ROOT, "CONVENTIONS.md")
+    step("Your conventions")
+    import conventions
+
+    first_time = not os.path.isfile(conventions.PATH)
+    if first_time and wanted:
+        data = conventions.defaults()
+        data["libraries"] = [{"name": wanted[0], "role": "staging"}] + [
+            {"name": n} for n in wanted[1:]]
+        conventions.save(data)
+        ok("library names taken from --categories")
+    elif first_time and not use_defaults and sys.stdin.isatty():
+        conventions.wizard()
+    elif first_time:
+        conventions.save(conventions.defaults())
+        ok("defaults written")
+        info("Change them any time:  python scripts/conventions.py")
+    else:
+        ok(f"yours already   {conventions.PATH}")
+        info("Left untouched.  python scripts/conventions.py  to change them.")
+
+    notes = os.path.join(ROOT, "CONVENTIONS.md")
     template = os.path.join(ROOT, "CONVENTIONS.template.md")
-
-    if os.path.isfile(target):
-        ok(f"yours already   {target}")
-        info("Left untouched. Edit it to change how parts get made.")
-        return
-    if not os.path.isfile(template):
-        fail(f"missing {template}")
-        return
-    shutil.copy2(template, target)
-    ok(f"created         {target}")
-    info("Seeded from CONVENTIONS.template.md. It is yours now - edit it to")
-    info("set your categories, naming, fields and footprint preferences.")
+    if os.path.isfile(notes):
+        ok(f"notes kept      {notes}")
+    elif os.path.isfile(template):
+        shutil.copy2(template, notes)
+        ok(f"notes created   {notes}")
+    return conventions.library_names()
 
 
 def install_skill(project: bool) -> str | None:
@@ -537,6 +553,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Set up the KiCad part maker.")
     ap.add_argument("--library-dir")
     ap.add_argument("--categories")
+    ap.add_argument("--defaults", action="store_true",
+                    help="take the default conventions without asking")
     ap.add_argument("--skip-deps", action="store_true")
     ap.add_argument("--skip-index", action="store_true")
     ap.add_argument("--no-register", action="store_true",
@@ -556,11 +574,11 @@ def main() -> int:
               f"(found {sys.version.split()[0]}).{RESET}")
         return 1
 
-    categories = DEFAULT_CATEGORIES
+    wanted = None
     if args.categories:
-        categories = [c.strip() for c in args.categories.split(",") if c.strip()]
-        if not categories:
-            print("--categories was empty")
+        wanted = [c.strip() for c in args.categories.split(",") if c.strip()]
+        if len(wanted) < 2:
+            print("--categories needs a staging library and at least one more")
             return 1
 
     if not check_location(args.allow_temp_location):
@@ -576,9 +594,9 @@ def main() -> int:
     if not library_dir:
         return 1
 
+    categories = setup_conventions(args.defaults, wanted)
     create_libraries(library_dir, categories)
     write_config(library_dir, categories)
-    seed_conventions()
     install_skill(args.project)
     install_mcp(args.mcp)
     registered = register_libraries(categories, args.no_register)
@@ -615,11 +633,12 @@ Next:
        /mkpart https://www.digikey.com/en/products/detail/...
        /mkpart <drop a screenshot of a pinout>
 
-  3. Edit CONVENTIONS.md to match how you name and field your parts:
-       {conventions}
-     That file is the rulebook. The skill reads it before every part, and in
-     chat the MCP server serves it via the get_conventions tool. It is yours:
-     git ignores it and re-running install.py never overwrites it.
+  3. Your conventions - library names and how parts are named:
+       python scripts/conventions.py          change them, guided
+       python scripts/conventions.py --show   see them
+     or just tell Claude, e.g. "name my resistors R_<value>_<package>".
+     Longer notes go in {conventions}.
+     Both are yours: git ignores them and re-installing never overwrites them.
 """)
     return 0
 

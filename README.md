@@ -140,12 +140,12 @@ python scripts/mcp_server.py --selftest
 ```
 
 ```
-kicad-part-maker 1.0.1
+kicad-part-maker 1.1.0
   ok   handshake
-  ok   13 tools advertised
+  ok   15 tools advertised
   ok   kicad_status: {...}
   ok   find_footprint: {...}
-  ok   get_conventions: # Rulebook, read from ...
+  ok   get_conventions: # YOUR SETTINGS ...
   ---  stdout encoding: utf-8
 ```
 
@@ -210,30 +210,29 @@ process exited rather than failed a call, and the traceback above it says why.
 
 ### What you get
 
-Thirteen tools:
+Fifteen tools:
 
 | Tool | For |
 |---|---|
-| `get_conventions` | your rulebook — **read before making a part** |
-| `kicad_status` | which KiCad, library folder and categories resolved |
+| `get_conventions` | your settings, your notes and the rules — **read before making a part** |
+| `suggest_name` | build a name from your naming pattern |
+| `set_convention` | change a naming pattern or add a library, when you ask |
+| `kicad_status` | which KiCad, library folder and libraries resolved |
 | `find_symbol` `symbol_info` | stock KiCad symbols |
 | `find_footprint` `footprint_info` | every installed footprint |
 | `make_part` | build and write a part, dry-run by default |
 | `list_staged` `promote_part` | the review workflow |
 | `lcsc_fetch` | LCSC/EasyEDA fallback |
-| `generate_symbol` `generate_footprint` | from a datasheet |
+| `generate_symbol` `generate_footprint` | from a datasheet, checked before writing |
 | `read_bom` | part numbers out of a spreadsheet |
 
-**Your conventions apply here too**, via `get_conventions` — `make_part`'s
-description tells the model to read it first. That matters, because `make_part`
-only enforces the *hard* checks in code: pad count equals pin count, the
-footprint exists, `Reference` is letters-only, no duplicate symbol. Naming, the
-field set and footprint preference are not enforced — they come from whoever
-writes the spec. Without the rulebook in hand, parts get built to defaults and
-nothing stops it.
+**Your conventions apply here too.** `get_conventions` hands chat the same
+three things the skill reads, and naming is enforced rather than hoped for:
+give `make_part` the part's `kind` and `name_parts` and it builds the name from
+your pattern, refusing a spec that departs from it.
 
-It is still a slightly thinner experience than the skill, which follows a
-written procedure end to end rather than relying on tool descriptions.
+So in chat you can simply say *"name my capacitors C_<package>_<value>"* and
+`set_convention` changes the setting for every part after that.
 
 **claude.ai in a browser cannot use this.** It only accepts remote HTTPS
 connectors, and this server runs on your machine because that is where your
@@ -284,34 +283,124 @@ Every write is atomic and leaves a `.bak`.
 
 ## What it refuses to write
 
+A part:
+
 - footprint pad count ≠ symbol pin count (one extra pad is allowed, flagged as a
   probable thermal pad)
 - a footprint that does not exist in any indexed library
 - `Reference` that is not letters-only (`C1` rejected, `C` fine)
-- a category that is not in your config
+- a name or reference that departs from your naming convention
 - a symbol that already exists, without `--replace`
 - anything that fails to re-parse after writing
 
+A generated footprint:
+
+- a `verify` dimension from the datasheet drawing that the pads do not reproduce
+- lead feet that do not land on the pads, from the package dimension table
+- pads that overlap or sit closer than 0.15 mm
+- a pattern not centred on the origin, or irregular spacing in a row
+- a written file that does not read back as intended
+
 ---
 
-## Conventions are yours
+## Generated footprints, and why to trust them
 
-`CONVENTIONS.md` is the rulebook — categories, naming, the exact field set,
-footprint preference order. **Edit that file, not the code.**
+Most parts use a stock KiCad footprint. When one must be generated (`RULES.md`
+says when), `genfp.py` does not just draw pads — it proves them.
 
-It is genuinely yours:
+**The arithmetic is checked against KiCad itself.** In IPC mode, fed the JEDEC
+dimension tables, it reproduces KiCad's stock SOIC-8, SOIC-16W, TSSOP-14 and
+LQFP-48 to 0.0000 mm on every pad:
 
-- `install.py` creates it from `CONVENTIONS.template.md` on a fresh install
-- it is **gitignored**, so your edits never conflict on `git pull`
-- re-running `install.py` never overwrites it
-- the shipped defaults are one working setup, not a prescription
+```bash
+python scripts/test_genfp.py
+```
 
-Both front ends read it. The skill reads the file before every part; over MCP
-the `get_conventions` tool serves it, and `make_part` is told to call that
-first — otherwise chat would quietly apply its own defaults instead of yours.
+**A transcription is checked against the datasheet twice.** The spec carries
+the drawing's redundant dimensions (`verify`) and, separately, the package
+outline's lead dimensions. The first catches a mistyped number; the second
+places every lead foot on its pad and reports the solder left at toe, heel and
+side:
 
-Change a rule and both follow it on the next part. To start over, delete
-`CONVENTIONS.md` and re-run `python install.py`.
+```
+  copper gap across rows   4.06 mm
+  lead fit (nominal / worst case), mm of pad beyond the lead:
+      toe         0.500 /   0.400
+      heel        0.135 /  -0.400
+      side        0.120 /   0.070
+```
+
+Two independent tables from the same datasheet agreeing is the evidence a
+footprint is right. `--check` validates without writing anything.
+
+What it does not do: no-lead packages (QFN, DFN) and through-hole have no IPC
+mode here. They can still be transcribed in manufacturer mode with `verify`;
+the lead-fit check applies to gullwing leads only.
+
+---
+
+## Your conventions
+
+Two kinds of rule, kept apart on purpose.
+
+**Yours to set** — the things that differ from one designer to the next:
+
+| | Where | How to change it |
+|---|---|---|
+| Library names | `conventions.json` | `python scripts/conventions.py` |
+| How a resistor, capacitor, connector… is named | `conventions.json` | same, or tell Claude |
+| Reference designators | `conventions.json` | `--set reference.diode D` |
+| What your fields hold, how a description reads | `CONVENTIONS.md` | edit the file |
+
+**Not yours to set** — `RULES.md`: where a footprint may come from, when one may
+be generated, what gets checked, the review step. Those are engineering, and
+ship with the tool.
+
+### Setting them
+
+On a first install `install.py` asks a few questions; Enter accepts each
+default:
+
+```
+1. Library names
+  new parts land in                    [To Be Verified]:
+  ICs, MCUs, regulators, op-amps...    [Active Components]: Semiconductors
+  ...
+2. How passives are named
+   1) value first                      10k_1%_0402   100nF_50V_0603_X7R   4u7_2.2A_1210
+   2) type prefix                      R_10k_1%_0402 C_100nF_50V_0603_X7R ...
+   3) type, package, value             R_0402_10k_1% C_0603_100nF_50V_X7R ...
+```
+
+Any time afterwards:
+
+```bash
+python scripts/conventions.py                  # the same guided setup
+python scripts/conventions.py --show           # what is set, with examples
+python scripts/conventions.py --set naming.resistor "R_{value}_{package}"
+python scripts/conventions.py --add-library "Power" --holds "Modules, DC-DC"
+python scripts/conventions.py --rename-library "Passives" "Discretes"
+python install.py                              # create + register new libraries
+```
+
+Or say it in plain words — *"call my staging library Review"*, *"put the
+package before the value in capacitor names"* — and Claude changes the setting.
+
+A naming pattern is text with `{placeholders}`:
+`{value}_{voltage}_{package}_{dielectric}` gives `100nF_50V_0603_X7R`. A value
+the datasheet does not give is dropped along with its separator, so you never
+get `10k__0402`.
+
+Patterns are **enforced**, not just suggested: a part made with a `kind` gets
+its name built from your pattern and is refused if it differs. Two 10k
+resistors cannot end up named two ways.
+
+Renaming a library renames its files, repoints footprint references and
+updates KiCad's tables — but schematics that already say `Old:part` are not
+rewritten, so it is best done early.
+
+All of it is yours: `conventions.json` and `CONVENTIONS.md` are gitignored and
+`install.py` never overwrites them.
 
 ---
 
@@ -372,8 +461,12 @@ python scripts/lcsc.py C12345 --install       # pull from LCSC/EasyEDA
 python scripts/readbom.py bom.xlsx            # part numbers out of a BOM
 
 python scripts/gensym.py sym_spec.json --out staging/gen/Generated.kicad_sym
-python scripts/genfp.py  fp_spec.json  --out "<lib>/Passives.pretty" \
-       --compare Package_TO_SOT_SMD:SOT-23
+python scripts/genfp.py  fp_spec.json  --check        # validate, write nothing
+python scripts/genfp.py  fp_spec.json  --out "<lib>/To Be Verified.pretty" \
+       --compare Package_SO:SOIC-8_3.9x4.9mm_P1.27mm
+
+python scripts/conventions.py --show          # your library names and naming
+python scripts/conventions.py --name resistor value=10k package=0402
 
 python scripts/addpart.py staging/part.json --preview
 python scripts/addpart.py staging/part.json --commit
@@ -396,8 +489,12 @@ python scripts/symsource.py --rebuild
 | Path | What it is |
 |---|---|
 | `install.py` | One-command setup |
-| `CONVENTIONS.md` | **Your rulebook.** Edit this. Gitignored; seeded from the template |
-| `CONVENTIONS.template.md` | The shipped default `install.py` seeds from |
+| `conventions.json` | **Your settings**: library names, naming patterns. Gitignored |
+| `conventions.default.json` | The shipped defaults those start from |
+| `CONVENTIONS.md` | **Your notes**: fields, descriptions, preferences. Gitignored |
+| `CONVENTIONS.template.md` | The shipped starting point for those notes |
+| `RULES.md` | The engineering rules, the same for every user |
+| `scripts/conventions.py` | Guided setup, naming, add or rename a library |
 | `config.json` | Library location and categories (written by `install.py`, gitignored) |
 | `skill/SKILL.md` | The skill template. `install.py` copies it to `~/.claude/skills/mkpart/`, substituting the tool path |
 | `scripts/kicadlib.py` | S-expression reader/writer. Owns every write |
@@ -405,7 +502,8 @@ python scripts/symsource.py --rebuild
 | `scripts/footprints.py` | Footprint index, search, pad counting |
 | `scripts/lcsc.py` | LCSC/EasyEDA fallback via easyeda2kicad |
 | `scripts/gensym.py` | Generate a symbol from a datasheet pinout |
-| `scripts/genfp.py` | Generate a land pattern (IPC-7351B or transcribed) |
+| `scripts/genfp.py` | Generate a land pattern (IPC-7351B or transcribed) and check it fits |
+| `scripts/test_genfp.py` | Proves the generator against KiCad's stock footprints |
 | `scripts/addpart.py` | Validate and write a part |
 | `scripts/promote.py` | Move a reviewed part to its final library |
 | `scripts/register.py` | Add the libraries to KiCad's global lib tables |
@@ -419,6 +517,7 @@ python scripts/symsource.py --rebuild
 
 ```bash
 python scripts/checkdocs.py        # README and code still agree?
+python scripts/test_genfp.py       # footprint maths matches KiCad's?
 python scripts/mcp_server.py --selftest
 python scripts/selftest.py "C:/Program Files/KiCad/10.0/share/kicad/symbols/**/*.kicad_sym"
 ```

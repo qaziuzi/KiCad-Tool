@@ -38,3 +38,6 @@ desktop.ini
 # Your rulebook. install.py seeds it from CONVENTIONS.template.md on a fresh
 # install and never overwrites it; your edits stay yours.
 CONVENTIONS.md
+
+conventions.json
+CONVENTIONS.backup-*.md

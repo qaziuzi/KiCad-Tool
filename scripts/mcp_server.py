@@ -26,7 +26,7 @@ from typing import Any, Callable, Dict, List, Optional
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 SERVER_NAME = "kicad-part-maker"
-SERVER_VERSION = "1.0.1"
+SERVER_VERSION = "1.1.0"
 DEFAULT_PROTOCOL = "2024-11-05"
 
 # MCP stdio is UTF-8. Python on Windows defaults stdout to the system ANSI
@@ -63,28 +63,58 @@ def _root() -> str:
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+def _file(name: str) -> str:
+    path = os.path.join(_root(), name)
+    if not os.path.isfile(path):
+        return ""
+    with open(path, "r", encoding="utf-8") as fh:
+        return fh.read()
+
+
 def t_get_conventions(_: Dict) -> str:
     """
-    The user's rulebook, verbatim.
+    Everything that governs how a part is made, in one answer.
 
-    The skill reads CONVENTIONS.md before making anything. Chat has no such
-    mechanism, so without this tool every MCP-made part silently ignores the
-    user's naming, field and footprint rules - which is the whole point of
-    having a rulebook.
+    The skill reads these files itself. Chat has no such mechanism, so without
+    this tool an MCP-made part silently ignores the user's library names and
+    naming - and the engineering rules along with them.
     """
-    path = os.path.join(_root(), "CONVENTIONS.md")
-    if not os.path.isfile(path):
-        template = os.path.join(_root(), "CONVENTIONS.template.md")
-        if os.path.isfile(template):
-            return (f"No CONVENTIONS.md yet. Run `python install.py` to create one "
-                    f"from the template, or copy {template} to {path}.")
-        return f"No conventions file found at {path}."
-    with open(path, "r", encoding="utf-8") as fh:
-        text = fh.read()
-    return (f"# Rulebook, read from {path}\n"
-            f"# The user edits this file; follow it over any default behaviour.\n"
-            f"# To change how parts are made, they edit this file - not the code.\n\n"
-            + text)
+    import conventions
+    out = ["# YOUR SETTINGS (conventions.json) - the user set these; follow them",
+           "", conventions.describe(), "",
+           "Build names with suggest_name rather than by hand. To change a",
+           "setting use set_convention, or the user can run",
+           "  python scripts/conventions.py", ""]
+    notes = _file("CONVENTIONS.md")
+    if notes:
+        out += ["# YOUR NOTES (CONVENTIONS.md) - the user's own preferences", "", notes, ""]
+    rules = _file("RULES.md")
+    if rules:
+        out += ["# RULES (RULES.md) - engineering rules, the same for every user", "", rules]
+    return "\n".join(out)
+
+
+def t_suggest_name(args: Dict) -> str:
+    import conventions
+    kind = str(args["kind"])
+    parts = args.get("parts") or {}
+    name = conventions.render(kind, parts)
+    return _fmt({"name": name, "reference": conventions.reference(kind),
+                 "pattern": conventions.load()["naming"][kind],
+                 "use": "pass kind and name_parts to make_part and it will "
+                        "hold the part to this name"})
+
+
+def t_set_convention(args: Dict) -> str:
+    import conventions
+    if args.get("add_library"):
+        conventions.add_library(str(args["add_library"]), str(args.get("holds", "")))
+        note = ("Library added to the settings. The user must run "
+                "`python install.py` to create and register its files.")
+    else:
+        conventions.set_value(str(args["key"]), str(args["value"]))
+        note = "Saved. It applies from the next part."
+    return note + "\n\n" + conventions.describe()
 
 
 def t_status(_: Dict) -> str:
@@ -287,15 +317,47 @@ TOOLS: List[Dict[str, Any]] = [
     {
         "name": "get_conventions",
         "description": "READ THIS FIRST, before making or promoting any part. "
-                       "Returns the user's rulebook (CONVENTIONS.md): which "
-                       "categories exist and what goes in each, how symbols are "
-                       "named, the exact field set every part carries, and the "
-                       "order to prefer footprints in. The user edits that file "
-                       "to change how parts are made, so it overrides any default "
-                       "you would otherwise apply. If they ask to change a "
-                       "convention, point them at the path this returns.",
+                       "Returns three things: the user's settings (library names, "
+                       "naming pattern per part type, reference designators), "
+                       "their own notes on fields and descriptions, and the "
+                       "engineering rules - where a footprint may come from, when "
+                       "one may be generated, the review step. The settings and "
+                       "notes are the user's and override your defaults.",
         "inputSchema": _obj({}),
         "_fn": t_get_conventions,
+    },
+    {
+        "name": "suggest_name",
+        "description": "Build a symbol name from the user's naming pattern - "
+                       "use this instead of composing a name yourself, so the "
+                       "same part is never named two ways. kind is one of the "
+                       "pattern names in get_conventions (resistor, capacitor, "
+                       "inductor, ferrite, crystal, diode, transistor, ic, "
+                       "connector, connector_series). parts are the values the "
+                       "pattern asks for; a missing one is simply left out.",
+        "inputSchema": _obj({
+            "kind": {"type": "string"},
+            "parts": {"type": "object",
+                      "description": "e.g. {value: '10k', tolerance: '1%', package: '0402'}"},
+        }, ["kind"]),
+        "_fn": t_suggest_name,
+    },
+    {
+        "name": "set_convention",
+        "description": "Change one of the user's settings when they ask - e.g. "
+                       "'name my resistors R_<value>_<package>' becomes key "
+                       "'naming.resistor', value 'R_{value}_{package}'. Keys are "
+                       "naming.<kind> or reference.<kind>; placeholders go in "
+                       "{braces}. To add a library pass add_library and holds "
+                       "instead. Only on the user's instruction, and show them "
+                       "the result. Renaming an existing library is not done "
+                       "here - it has consequences for existing schematics; "
+                       "point them at conventions.py --rename-library.",
+        "inputSchema": _obj({
+            "key": {"type": "string"}, "value": {"type": "string"},
+            "add_library": {"type": "string"}, "holds": {"type": "string"},
+        }),
+        "_fn": t_set_convention,
     },
     {
         "name": "kicad_status",
@@ -358,6 +420,10 @@ TOOLS: List[Dict[str, Any]] = [
                        "does not exist, Reference is not letters-only, or the symbol "
                        "already exists. Spec keys: name, reference, value, footprint, "
                        "datasheet, description, fields{}, graphics{source,...}. "
+                       "For passives and other pattern-named parts also pass kind "
+                       "and name_parts (as given to suggest_name): the part is "
+                       "then refused if its name or Reference departs from the "
+                       "user's convention. "
                        "graphics.source is 'kicad' (+ref), 'file' (+path,symbol) or "
                        "'library' (+category,symbol).",
         "inputSchema": _obj({
@@ -417,11 +483,17 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         "name": "generate_footprint",
-        "description": "Generate a land pattern. mode 'manufacturer' transcribes the "
-                       "datasheet's recommended pad layout (preferred - add a verify "
-                       "block of its redundant dimensions and the tool rejects a "
-                       "mis-typed spec). mode 'ipc' computes IPC-7351B from the "
-                       "package dimension table when no recommended layout exists.",
+        "description": "Generate a land pattern, only when the rules in "
+                       "get_conventions allow one. mode 'manufacturer' transcribes "
+                       "the datasheet's recommended pad layout; mode 'ipc' computes "
+                       "IPC-7351B from the package dimension table. Always give a "
+                       "verify block (the drawing's redundant dimensions) AND the "
+                       "package lead_span / foot_length / lead_width / pitch: the "
+                       "tool re-derives the first and places every lead on its pad "
+                       "with the second, and refuses a footprint that fails. Call "
+                       "with check_only first; report the fit numbers to the user. "
+                       "A refusal means a number is wrong - find it, do not loosen "
+                       "the spec.",
         "inputSchema": _obj({
             "spec": {"type": "object"},
             "out_dir": {"type": "string", "description": "a .pretty folder; omit to validate only"},

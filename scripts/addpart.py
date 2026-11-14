@@ -47,6 +47,39 @@ def _require(spec: Dict, key: str) -> str:
     return str(value)
 
 
+def apply_conventions(spec: Dict) -> List[str]:
+    """
+    Hold a part to the user's naming pattern when the spec says what it is.
+
+    `kind` plus `name_parts` lets the name be built rather than typed, so two
+    10k resistors cannot end up named two different ways. A spec without
+    `kind` is left alone - nothing here guesses what a part is.
+    """
+    kind = spec.get("kind")
+    if not kind:
+        return []
+    import conventions
+    problems: List[str] = []
+    parts = spec.get("name_parts")
+    if isinstance(parts, dict):
+        try:
+            expected = conventions.render(kind, parts)
+        except conventions.ConventionError as exc:
+            return [str(exc)]
+        if not spec.get("name"):
+            spec["name"] = expected
+        elif spec["name"] != expected:
+            problems.append(f"name {spec['name']!r} does not follow your {kind} "
+                            f"pattern; it should be {expected!r}")
+    ref = conventions.reference(kind)
+    if ref and not spec.get("reference"):
+        spec["reference"] = ref
+    elif ref and spec["reference"] != ref:
+        problems.append(f"reference {spec['reference']!r} does not match your "
+                        f"convention for a {kind} ({ref!r})")
+    return problems
+
+
 def build_symbol(spec: Dict) -> K.Node:
     """Produce the finished symbol node from a spec, without writing it."""
     name = _require(spec, "name")
@@ -271,6 +304,8 @@ def main() -> int:
     with open(args.spec, "r", encoding="utf-8") as fh:
         spec = json.load(fh)
 
+    spec.setdefault("category", cfg_mod.load().staging_category)
+    convention_problems = apply_conventions(spec)
     try:
         sym = build_symbol(spec)
     except (SpecError, ValueError, K.ParseError) as exc:
@@ -281,6 +316,7 @@ def main() -> int:
         return 1
 
     result = check(spec, sym)
+    result["errors"] = convention_problems + result["errors"]
     cfg = cfg_mod.load()
     target = cfg.library_path(spec["category"]) if spec.get("category") in cfg.categories else "(unknown)"
     name = K.symbol_name(sym)

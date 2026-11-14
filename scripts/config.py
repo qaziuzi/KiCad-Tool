@@ -253,7 +253,13 @@ class Config:
 
     @property
     def categories(self) -> Dict[str, str]:
-        return dict(self._d.get("categories") or {})  # type: ignore[arg-type]
+        """Library names. conventions.json is the authority; config.json is
+        only the fallback for an install that predates it."""
+        try:
+            import conventions
+            return {name: name for name in conventions.library_names()}
+        except Exception:  # noqa: BLE001
+            return dict(self._d.get("categories") or {})  # type: ignore[arg-type]
 
     @property
     def footprint_format_version(self) -> str:
@@ -266,7 +272,11 @@ class Config:
     @property
     def staging_category(self) -> str:
         """Where new parts land before review."""
-        return str(self._d.get("staging_category") or "To Be Verified")
+        try:
+            import conventions
+            return conventions.staging()
+        except Exception:  # noqa: BLE001
+            return str(self._d.get("staging_category") or "To Be Verified")
 
     @property
     def review_categories(self) -> List[str]:
