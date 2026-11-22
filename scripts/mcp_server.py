@@ -26,7 +26,7 @@ from typing import Any, Callable, Dict, List, Optional
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 SERVER_NAME = "kicad-part-maker"
-SERVER_VERSION = "1.2.0"
+SERVER_VERSION = "1.2.1"
 DEFAULT_PROTOCOL = "2024-11-05"
 
 # MCP stdio is UTF-8. Python on Windows defaults stdout to the system ANSI

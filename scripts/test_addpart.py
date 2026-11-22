@@ -81,11 +81,26 @@ def main() -> int:
         check("BGA FPGA: banks kept as units, ball order", r["layout"] == "grid"
               and r["units"] == 6 and K.pin_count(art) == 238)
 
+        def box(sym):
+            r = K.children(next(u for u in K.children(sym, "symbol")
+                                if K.children(u, "rectangle")), "rectangle")[0]
+            x0, y0 = (float(v) for v in K.atom_values(K.child(r, "start"))[1:])
+            x1, y1 = (float(v) for v in K.atom_values(K.child(r, "end"))[1:])
+            return round(abs(x1 - x0), 3), round(abs(y1 - y0), 3)
+
+        w, h = box(stm)
+        check("square package gives a square symbol, like its datasheet drawing",
+              w == h, f"{w} x {h} mm")
+        w, h = box(ice)
+        check("square QFN with exposed pad is still square", w == h, f"{w} x {h} mm")
+
         dip = symsource.get_symbol("Memory_EEPROM:24LC256")
         pinlayout.relayout(dip, "Package_DIP:DIP-8_W7.62mm")
         sd = sides(dip, K)
         check("DIP-8 (origin on pin 1): 1-4 left, 8-5 right",
               sd == {"left": ["1", "2", "3", "4"], "right": ["8", "7", "6", "5"]})
+        w, h = box(dip)
+        check("a two-row package is not forced square", w != h, f"{w} x {h} mm")
 
         for ref, fp in (("Device:R", "Resistor_SMD:R_0402_1005Metric"),):
             try:

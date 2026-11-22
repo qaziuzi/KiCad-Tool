@@ -140,7 +140,7 @@ python scripts/mcp_server.py --selftest
 ```
 
 ```
-kicad-part-maker 1.2.0
+kicad-part-maker 1.2.1
   ok   handshake
   ok   15 tools advertised
   ok   kicad_status: {...}
@@ -321,7 +321,9 @@ STM32G474 in LQFP-48            KiCad's stock symbol
   top    48 .. 37
 ```
 
-- **QFP / QFN** — four sides; an exposed pad ends the bottom row
+- **QFP / QFN** — four sides; an exposed pad ends the bottom row. A package
+  with the same number of pins on every side gets a square symbol, as its
+  datasheet drawing is square
 - **SOIC / TSSOP / DIP** — two columns
 - **BGA** — one unit per bank, balls in order (A1 first), as the datasheet's
   pin tables list them; a ball grid is no use as a schematic shape

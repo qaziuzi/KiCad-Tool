@@ -43,7 +43,7 @@ GRID = 1.27
 SPACING = 2.54        # 100 mil between pins
 LENGTH = 2.54         # pin length
 NAME_OFFSET = 1.016   # gap between the box edge and a pin name
-CHAR_W = 1.1          # mm per character of a 1.27 mm pin name, generous
+CHAR_W = 0.85         # mm per character of a 1.27 mm pin name; measured ~0.67, kept with margin
 MIN_HALF = 5.08
 
 _BALL = re.compile(r"([A-Z]{1,3})(\d{1,3})")
@@ -213,8 +213,16 @@ def _place(pin, x: float, y: float, rot: int, hidden: bool = False):
     return node
 
 
-def _unit_geometry(sides: Dict[str, list]) -> Tuple[float, float, Dict[str, float]]:
-    """Box half-width/half-height so no two pin names can meet."""
+def _unit_geometry(sides: Dict[str, list],
+                   square: bool = False) -> Tuple[float, float, Dict[str, float]]:
+    """
+    Box half-width/half-height so no two pin names can meet.
+
+    `square` makes both halves the larger of the two. A package with the same
+    number of pins on every side is square, and its datasheet drawing is
+    square; a symbol stretched by whichever side has longer pin names would
+    not look like the drawing it is meant to mirror.
+    """
     w = {s: max([_text_len(_pin_meta(p)[1]) for p in sides[s] if p is not None] or [0]) * CHAR_W
          for s in ("left", "right", "top", "bottom")}
     span = {s: max(len(sides[s]) - 1, 0) * SPACING for s in sides}
@@ -234,11 +242,14 @@ def _unit_geometry(sides: Dict[str, list]) -> Tuple[float, float, Dict[str, floa
         # highest side pin. Likewise sideways for left/right names.
         half_h = max(half_h, lr / 2 + max(w["top"], w["bottom"]) + NAME_OFFSET + GRID)
         half_w = max(half_w, tb / 2 + max(w["left"], w["right"]) + NAME_OFFSET + GRID)
+    if square:
+        half_w = half_h = max(half_w, half_h)
     return _up(half_w), _up(half_h), span
 
 
-def _draw_unit(name: str, unit: int, sides: Dict[str, list], dot: bool):
-    half_w, half_h, span = _unit_geometry(sides)
+def _draw_unit(name: str, unit: int, sides: Dict[str, list], dot: bool,
+               square: bool = False):
+    half_w, half_h, span = _unit_geometry(sides, square)
     out = [Atom("symbol"), Atom(f"{name}_{unit}_1", quoted=True),
            [Atom("rectangle"),
             [Atom("start"), Atom(_f(-half_w)), Atom(_f(half_h))],
@@ -352,7 +363,11 @@ def relayout(sym: List[K.Node], footprint_ref: str) -> Dict:
         if extras:
             sides["bottom"] = sides["bottom"] + ([None] if sides["bottom"] else []) + extras
         first_left = order["left"][0] if order["left"] else None
-        new_units.append(_draw_unit(name, 1, sides, dot=(first_left == "1")))
+        counts = {len(order[s]) for s in ("left", "right", "top", "bottom")}
+        square = kind == "quad" and len(counts) == 1
+        new_units.append(_draw_unit(name, 1, sides, dot=(first_left == "1"),
+                                    square=square))
+        report["square"] = square
         report["units"] = 1
         report["sides"] = {s: order[s] for s in ("left", "bottom", "right", "top") if order[s]}
         if order["center"]:
@@ -389,7 +404,7 @@ def relayout(sym: List[K.Node], footprint_ref: str) -> Dict:
 def summary(report: Dict) -> str:
     if report["layout"] == "grid":
         return f"package order (BGA, {report['units']} unit(s) by bank, ball order)"
-    parts = []
+    parts = ["square"] if report.get("square") else []
     for side, nums in report.get("sides", {}).items():
         span = f"{nums[0]}" if len(nums) == 1 else f"{nums[0]}..{nums[-1]}"
         parts.append(f"{side} {span}")

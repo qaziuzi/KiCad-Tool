@@ -322,6 +322,9 @@ the left of the symbol leaves the left of the chip, so the schematic and the
 layout read the same way.
 
 - **QFP / QFN** — four sides; an exposed pad goes at the end of the bottom row.
+  Equal pins on every side gives a square box, matching the datasheet drawing.
+  The box is sized from the pin names so none collide; do not hand-draw a
+  symbol to change its shape - fix the generator instead.
 - **SOIC / TSSOP / DIP** — two columns.
 - **BGA** — a ball grid is no use as a schematic shape, so one unit per bank,
   in ball order (A1 first), as the datasheet's pin tables list them.
