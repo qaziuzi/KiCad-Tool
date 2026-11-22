@@ -95,12 +95,15 @@ def main() -> int:
         check("square QFN with exposed pad is still square", w == h, f"{w} x {h} mm")
 
         dip = symsource.get_symbol("Memory_EEPROM:24LC256")
-        pinlayout.relayout(dip, "Package_DIP:DIP-8_W7.62mm")
+        dip_report = pinlayout.relayout(dip, "Package_DIP:DIP-8_W7.62mm")
         sd = sides(dip, K)
         check("DIP-8 (origin on pin 1): 1-4 left, 8-5 right",
               sd == {"left": ["1", "2", "3", "4"], "right": ["8", "7", "6", "5"]})
-        w, h = box(dip)
-        check("a two-row package is not forced square", w != h, f"{w} x {h} mm")
+        check("a two-row package is not forced square (it may still come out equal)",
+              not dip_report.get("square"))
+        wide = symsource.get_symbol("Memory_EEPROM:24LC256")
+        r = pinlayout.relayout(wide, "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm")
+        check("a SOIC is laid out as two columns, never squared", not r.get("square"))
 
         for ref, fp in (("Device:R", "Resistor_SMD:R_0402_1005Metric"),):
             try:
