@@ -62,6 +62,13 @@ EXAMPLES = {
 }
 
 
+# How an IC symbol arranges its pins.
+LAYOUTS = {
+    "package": "as the package - pin 1 top-left, like the datasheet pinout drawing",
+    "functional": "by function - KiCad's stock style, power on top, ports grouped",
+}
+
+
 class ConventionError(ValueError):
     pass
 
@@ -82,8 +89,8 @@ def load() -> Dict:
         mine = _read(PATH)
         if mine.get("libraries"):
             base["libraries"] = mine["libraries"]
-        for section in ("naming", "reference"):
-            base[section].update(mine.get(section) or {})
+        for section in ("naming", "reference", "symbol_layout"):
+            base.setdefault(section, {}).update(mine.get(section) or {})
     return base
 
 
@@ -117,6 +124,10 @@ def validate(data: Dict) -> None:
         if re.search(r'[\\/:"]', _TOKEN.sub("", pattern)):
             raise ConventionError(f"naming.{kind} contains a character KiCad does "
                                   "not allow in a symbol name")
+    for kind, value in (data.get("symbol_layout") or {}).items():
+        if value not in LAYOUTS:
+            raise ConventionError(f"symbol_layout.{kind} must be one of "
+                                  f"{', '.join(LAYOUTS)}, got {value!r}")
     for kind, ref in (data.get("reference") or {}).items():
         if not re.fullmatch(r"[A-Za-z]+", str(ref)):
             raise ConventionError(f"reference.{kind} must be letters only, got {ref!r}")
@@ -182,6 +193,10 @@ def render(kind: str, parts: Dict[str, str], data: Optional[Dict] = None) -> str
     return name
 
 
+def symbol_layout(kind: str, data: Optional[Dict] = None) -> str:
+    return ((data or load()).get("symbol_layout") or {}).get(kind, "functional")
+
+
 def reference(kind: str, data: Optional[Dict] = None) -> Optional[str]:
     return (data or load())["reference"].get(kind)
 
@@ -195,6 +210,9 @@ def describe(data: Optional[Dict] = None) -> str:
         lines.append(f"  {lib['name']}{tag}")
         if lib.get("holds"):
             lines.append(f"      {lib['holds']}")
+    lines += ["", "IC SYMBOLS", ""]
+    for kind, value in (data.get("symbol_layout") or {}).items():
+        lines.append(f"  {kind:<18}{value:<12}{LAYOUTS.get(value, '')}")
     lines += ["", "NAMING", ""]
     for kind, pattern in data["naming"].items():
         try:
@@ -213,9 +231,10 @@ def describe(data: Optional[Dict] = None) -> str:
 def set_value(key: str, value: str) -> Dict:
     data = load()
     section, _, name = key.partition(".")
-    if section not in ("naming", "reference") or not name:
-        raise ConventionError("key must look like naming.resistor or reference.diode")
-    data[section][name] = value
+    if section not in ("naming", "reference", "symbol_layout") or not name:
+        raise ConventionError("key must look like naming.resistor, reference.diode "
+                              "or symbol_layout.ic")
+    data.setdefault(section, {})[name] = value
     save(data)
     return data
 
@@ -383,7 +402,16 @@ def wizard(existing_files: Optional[List[str]] = None) -> Dict:
     if choice in PRESETS:
         data["naming"].update(PRESETS[choice][1])
 
-    print("\n3. ICs, diodes and transistors are named by manufacturer part number.")
+    print("\n3. How IC symbols (MCUs, FPGAs, ...) arrange their pins\n")
+    keys = list(LAYOUTS)
+    for i, key in enumerate(keys, 1):
+        print(f"   {i}) {LAYOUTS[key]}")
+    current = str(keys.index(symbol_layout("ic", data)) + 1)
+    pick = _ask("choose 1-2", current)
+    if pick in ("1", "2"):
+        data.setdefault("symbol_layout", {})["ic"] = keys[int(pick) - 1]
+
+    print("\n4. ICs, diodes and transistors are named by manufacturer part number.")
     print("   Change any pattern later with, for example:")
     print('     python scripts/conventions.py --set naming.diode "D_{mpn}"')
     print("   or just tell Claude how you want something named.\n")

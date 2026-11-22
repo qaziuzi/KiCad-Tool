@@ -26,7 +26,7 @@ from typing import Any, Callable, Dict, List, Optional
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 SERVER_NAME = "kicad-part-maker"
-SERVER_VERSION = "1.1.0"
+SERVER_VERSION = "1.2.0"
 DEFAULT_PROTOCOL = "2024-11-05"
 
 # MCP stdio is UTF-8. Python on Windows defaults stdout to the system ANSI
@@ -181,19 +181,7 @@ def t_make_part(args: Dict) -> str:
     if not isinstance(spec, dict):
         raise ValueError("spec must be an object (or a JSON string of one)")
 
-    cfg = cfg_mod.load()
-    spec.setdefault("category", cfg.staging_category)
-
-    sym = addpart.build_symbol(spec)
-    result = addpart.check(spec, sym)
-    target = (cfg.library_path(spec["category"])
-              if spec.get("category") in cfg.categories else None)
-
-    if target and K.get_symbol(K.load_library(target), K.symbol_name(sym)) is not None \
-            and not args.get("replace"):
-        result["errors"].append(
-            f"{K.symbol_name(sym)!r} already exists in "
-            f"{os.path.basename(target)}; pass replace=true to overwrite")
+    sym, result, target = addpart.evaluate(spec, replace=bool(args.get("replace")))
 
     committed = False
     if args.get("commit") and not result["errors"]:
@@ -209,6 +197,8 @@ def t_make_part(args: Dict) -> str:
         "name": K.symbol_name(sym),
         "library": target,
         "pins": K.pin_count(sym),
+        "layout": spec.get("_layout") and __import__("pinlayout").summary(spec["_layout"]),
+        "duplicates": result.get("duplicates", []),
         "fields": {k: K.get_property(sym, k) for k in K.property_keys(sym)
                    if not k.startswith("ki_")},
         "errors": result["errors"],
@@ -347,7 +337,8 @@ TOOLS: List[Dict[str, Any]] = [
         "description": "Change one of the user's settings when they ask - e.g. "
                        "'name my resistors R_<value>_<package>' becomes key "
                        "'naming.resistor', value 'R_{value}_{package}'. Keys are "
-                       "naming.<kind> or reference.<kind>; placeholders go in "
+                       "naming.<kind>, reference.<kind> or symbol_layout.ic "
+                       "('package' or 'functional'); placeholders go in "
                        "{braces}. To add a library pass add_library and holds "
                        "instead. Only on the user's instruction, and show them "
                        "the result. Renaming an existing library is not done "
@@ -423,7 +414,13 @@ TOOLS: List[Dict[str, Any]] = [
                        "For passives and other pattern-named parts also pass kind "
                        "and name_parts (as given to suggest_name): the part is "
                        "then refused if its name or Reference departs from the "
-                       "user's convention. "
+                       "user's convention. For an IC pass kind 'ic': its pins are "
+                       "laid out per the user's symbol_layout setting (default: "
+                       "package order, like the datasheet pinout drawing); override "
+                       "with graphics.layout 'functional'. If the result says the "
+                       "part number is already in a library, ASK the user whether to "
+                       "reuse it; only if they call it a deliberate variant, add "
+                       "duplicate_ok with their reason and call again. "
                        "graphics.source is 'kicad' (+ref), 'file' (+path,symbol) or "
                        "'library' (+category,symbol).",
         "inputSchema": _obj({
@@ -472,7 +469,10 @@ TOOLS: List[Dict[str, Any]] = [
         "name": "generate_symbol",
         "description": "Generate a symbol from a datasheet pinout when neither "
                        "KiCad nor LCSC has one. mode 'box' for ICs, 'custom' for "
-                       "discretes drawn from primitives. The pin table must come "
+                       "discretes drawn from primitives, 'package' for an IC whose "
+                       "pins should follow the package: give number/name/type (+bank "
+                       "for a BGA) and footprint, positions come from the footprint. "
+                       "The pin table must come "
                        "from a NUMBERED datasheet pinout - functional labels like "
                        "'A1'/'C2' alone do not say which physical lead is pin 1.",
         "inputSchema": _obj({

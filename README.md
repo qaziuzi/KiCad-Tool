@@ -140,7 +140,7 @@ python scripts/mcp_server.py --selftest
 ```
 
 ```
-kicad-part-maker 1.1.0
+kicad-part-maker 1.2.0
   ok   handshake
   ok   15 tools advertised
   ok   kicad_status: {...}
@@ -290,6 +290,9 @@ A part:
 - a footprint that does not exist in any indexed library
 - `Reference` that is not letters-only (`C1` rejected, `C` fine)
 - a name or reference that departs from your naming convention
+- a part number already in one of your libraries, unless you call it a
+  deliberate variant
+- an IC in package order whose pins have no matching pads on its footprint
 - a symbol that already exists, without `--replace`
 - anything that fails to re-parse after writing
 
@@ -300,6 +303,53 @@ A generated footprint:
 - pads that overlap or sit closer than 0.15 mm
 - a pattern not centred on the origin, or irregular spacing in a row
 - a written file that does not read back as intended
+
+---
+
+## IC symbols that look like the datasheet
+
+MCUs and FPGAs are drawn in **package order** by default: pin 1 top-left, then
+counter-clockwise — the same picture as the pinout drawing in the datasheet.
+The schematic and the board read the same way: a net leaving the left of the
+symbol leaves the left of the chip.
+
+```
+STM32G474 in LQFP-48            KiCad's stock symbol
+  left    1 .. 12                 power on top, ground on the bottom,
+  bottom 13 .. 24                 ports grouped by function -
+  right  36 .. 25                 pin 1 sits next to pin 48
+  top    48 .. 37
+```
+
+- **QFP / QFN** — four sides; an exposed pad ends the bottom row
+- **SOIC / TSSOP / DIP** — two columns
+- **BGA** — one unit per bank, balls in order (A1 first), as the datasheet's
+  pin tables list them; a ball grid is no use as a schematic shape
+
+The order is read from the part's **footprint**, so the symbol cannot disagree
+with the board. When KiCad already has the part, its symbol is rearranged, not
+redrawn — every pin name, type and alternate function is kept (the STM32 above
+carries 476 alternates).
+
+Prefer KiCad's functional style? Set it once:
+
+```bash
+python scripts/conventions.py --set symbol_layout.ic functional
+```
+
+---
+
+## Duplicates
+
+Before a part is written, its manufacturer part number is looked up in **all**
+your libraries. If it is already there — say added earlier under a different
+naming style — the part is refused and you are told where it is. Claude asks
+whether to use the existing one; if you say it is a deliberate variant (a
+hand-solder footprint, a second symbol style), it goes through with your reason
+recorded in the review.
+
+Matched on part number only, ignoring case and spaces. LCSC codes are not
+compared — they change when a distributor relists a part.
 
 ---
 
@@ -350,6 +400,7 @@ Two kinds of rule, kept apart on purpose.
 | Library names | `conventions.json` | `python scripts/conventions.py` |
 | How a resistor, capacitor, connector… is named | `conventions.json` | same, or tell Claude |
 | Reference designators | `conventions.json` | `--set reference.diode D` |
+| IC pin arrangement — package or functional | `conventions.json` | `--set symbol_layout.ic package` |
 | What your fields hold, how a description reads | `CONVENTIONS.md` | edit the file |
 
 **Not yours to set** — `RULES.md`: where a footprint may come from, when one may
@@ -470,6 +521,7 @@ python scripts/conventions.py --name resistor value=10k package=0402
 
 python scripts/addpart.py staging/part.json --preview
 python scripts/addpart.py staging/part.json --commit
+python scripts/addpart.py staging/part.json --commit --allow-duplicate "hand-solder variant"
 
 python scripts/promote.py --list
 python scripts/promote.py <symbol> --to "Passives" --commit
@@ -502,8 +554,10 @@ python scripts/symsource.py --rebuild
 | `scripts/footprints.py` | Footprint index, search, pad counting |
 | `scripts/lcsc.py` | LCSC/EasyEDA fallback via easyeda2kicad |
 | `scripts/gensym.py` | Generate a symbol from a datasheet pinout |
+| `scripts/pinlayout.py` | Arranges an IC's pins in package order, from its footprint |
 | `scripts/genfp.py` | Generate a land pattern (IPC-7351B or transcribed) and check it fits |
 | `scripts/test_genfp.py` | Proves the generator against KiCad's stock footprints |
+| `scripts/test_addpart.py` | Package-order layout, naming and duplicates, through both front ends |
 | `scripts/addpart.py` | Validate and write a part |
 | `scripts/promote.py` | Move a reviewed part to its final library |
 | `scripts/register.py` | Add the libraries to KiCad's global lib tables |
@@ -518,6 +572,7 @@ python scripts/symsource.py --rebuild
 ```bash
 python scripts/checkdocs.py        # README and code still agree?
 python scripts/test_genfp.py       # footprint maths matches KiCad's?
+python scripts/test_addpart.py     # layout, naming, duplicates - CLI and MCP
 python scripts/mcp_server.py --selftest
 python scripts/selftest.py "C:/Program Files/KiCad/10.0/share/kicad/symbols/**/*.kicad_sym"
 ```

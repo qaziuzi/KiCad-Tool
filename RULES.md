@@ -26,6 +26,12 @@ if it breaks them.
 - **[hard]** When a spec gives `kind` and `name_parts`, the name must be what
   your naming pattern produces, and `Reference` must match your convention.
 - **[hard]** A generated footprint must pass its own checks - see section 4.
+- **[hard]** A part whose manufacturer part number is already in any of the
+  user's libraries is refused unless the spec carries `duplicate_ok` with the
+  reason the user gave. Matched on Part Number only, ignoring case and spaces;
+  LCSC codes are not compared.
+- **[hard]** An IC laid out in package order must have a pad for every pin on
+  its footprint.
 
 Sections are numbered from 4 to keep references stable.
 
@@ -307,9 +313,35 @@ datasheet has no numbered pinout, **stop and say so**. Some datasheets show an
 internal schematic with no pin numbers at all, and guessing which physical
 lead is pin 1 is how you get a mirrored part. Find a second datasheet.
 
-For a `box` IC symbol, still ask before committing: pins in numeric order
-around a rectangle are legal but unpleasant to wire up. Power on top, ground on
-bottom, inputs left, outputs right is judgement, and worth a question.
+### How an IC's pins are arranged
+
+The user's `symbol_layout.ic` setting decides, and it defaults to `package`:
+the symbol mirrors the datasheet's pinout drawing - pin 1 top-left, then
+counter-clockwise, exactly as the pads sit seen from above. A net that leaves
+the left of the symbol leaves the left of the chip, so the schematic and the
+layout read the same way.
+
+- **QFP / QFN** — four sides; an exposed pad goes at the end of the bottom row.
+- **SOIC / TSSOP / DIP** — two columns.
+- **BGA** — a ball grid is no use as a schematic shape, so one unit per bank,
+  in ball order (A1 first), as the datasheet's pin tables list them.
+
+The order is read **from the assigned footprint**, not from a drawing, so the
+symbol cannot disagree with the board. A stock KiCad symbol is not redrawn: its
+pins are moved, and every name, type and alternate function survives. That is
+why stock remains the first choice even for package order — its pin data has
+been checked by KiCad's librarians.
+
+`functional` keeps KiCad's own arrangement (power on top, ports grouped).
+Component glyphs — resistors, diodes, transistors — are never rearranged.
+
+### Duplicates
+
+Before writing, the part number is looked up in every library. A hit is
+refused with where it already is. Ask the user whether to use that part. Only
+if they say it is a deliberate variant — a hand-solder footprint, a
+package-order symbol alongside a functional one — set `duplicate_ok` to their
+reason; it is shown in the review packet. Never set it on your own judgement.
 
 ### Verify a generated symbol against the stock one
 

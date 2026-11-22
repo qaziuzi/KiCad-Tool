@@ -168,7 +168,10 @@ If neither has it, generate from the datasheet:
 python "{{TOOL_HOME}}/scripts/gensym.py" spec.json --out "{{TOOL_HOME}}/staging/gen/Generated.kicad_sym"
 ```
 
-`mode: "box"` for ICs, `mode: "custom"` for discretes. The pin table must come
+`mode: "package"` for ICs — give pins as number, name, type (plus `bank` for
+a BGA) and the `footprint`; positions come from the footprint, pin 1 top-left
+like the datasheet drawing. `mode: "box"` only if the user wants a functional
+layout, `mode: "custom"` for discretes. The pin table must come
 from the datasheet's pin-configuration section, read directly — see step 4a for
 how to read a PDF. If the datasheet has no numbered pinout, **stop and ask**;
 do not infer which lead is pin 1.
@@ -309,7 +312,19 @@ and put the same in the spec, leaving `name` and `reference` out:
 ```
 
 `addpart.py` then builds the name and reference, and refuses a spec whose name
-departs from the pattern. A value the datasheet does not give is simply left
+departs from the pattern.
+
+**For an IC, put `"kind": "ic"`.** Its pins are then laid out the way the
+user's `symbol_layout.ic` setting says — by default in package order, read from
+the footprint, matching the datasheet pinout drawing. Stock symbols are
+rearranged, not redrawn, so pin names, types and alternates are kept. Override
+for one part with `"graphics": {..., "layout": "functional"}`. The review
+packet must say which layout was used.
+
+**If addpart reports the part number is already in a library**, stop and ask
+the user: use the existing part, or is this a deliberate variant? Only on their
+answer add `"duplicate_ok": "<their reason>"` and run again. Never add it
+yourself. A value the datasheet does not give is simply left
 out of `name_parts`; never invent one to fill a slot.
 
 Field names in `fields` must match `CONVENTIONS.md` §3 exactly. Do not put

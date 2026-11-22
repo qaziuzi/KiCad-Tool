@@ -1,10 +1,12 @@
 """
 gensym.py - generate a schematic symbol from a declarative spec.
 
-For parts where neither KiCad nor LCSC has a usable symbol. Two modes:
+For parts where neither KiCad nor LCSC has a usable symbol. Three modes:
 
-  box     rectangle with pins on the sides, sized automatically.
-          The workhorse for ICs.
+  package pins arranged as the package is, read from the footprint: pin 1
+          top-left, counter-clockwise, like the datasheet pinout drawing.
+          BGAs become one unit per bank. The default for MCUs and FPGAs.
+  box     rectangle with pins on the sides you choose (functional layout).
   custom  explicit primitives and pin placement, for discretes whose symbol
           is a recognised glyph rather than a box.
 
@@ -217,12 +219,14 @@ def build(spec: Dict) -> List[K.Node]:
         raise SpecError("spec needs a non-empty 'pins' list")
 
     mode = spec.get("mode", "box")
+    if mode == "package":
+        return _build_package(spec)
     if mode == "box":
         graphics, pin_nodes = _build_box(spec)
     elif mode == "custom":
         graphics, pin_nodes = _build_custom(spec)
     else:
-        raise SpecError("mode must be 'box' or 'custom'")
+        raise SpecError("mode must be 'package', 'box' or 'custom'")
 
     # Off-grid pins silently fail to connect to wires in the schematic editor.
     off = []
@@ -278,6 +282,46 @@ def build(spec: Dict) -> List[K.Node]:
     sym.append(body)
     sym.append(unit)
     sym.append([Atom("embedded_fonts"), Atom("no")])
+    return sym
+
+
+def _build_package(spec: Dict) -> List[K.Node]:
+    """
+    A box symbol whose pins follow the package of spec['footprint'].
+
+    Pins need only number, name and type - where each goes is read from the
+    footprint, so it cannot disagree with the board. For a BGA give each pin a
+    `bank`; pins are grouped into one unit per bank, in ball order.
+    """
+    import pinlayout
+
+    if not spec.get("footprint"):
+        raise SpecError("mode 'package' needs 'footprint' - the pin order comes from it")
+    pins = spec["pins"]
+    banks: Dict[str, List[Dict]] = {}
+    for p in pins:
+        banks.setdefault(str(p.get("bank", "")), []).append(p)
+
+    flat = dict(spec, mode="box",
+                pins=[dict(p, side="left") for p in pins])
+    sym = build(flat)
+    name = K.symbol_name(sym)
+    pin_nodes = {K.atom_values(K.child(p, "number"))[1]: p for p in K.pins(sym)}
+
+    # One unit per bank. The rectangle is a placeholder; relayout redraws it.
+    sym[:] = [n for n in sym if not (isinstance(n, list) and K._head(n) == "symbol")]
+    insert_at = next(i for i, n in enumerate(sym)
+                     if isinstance(n, list) and K._head(n) == "embedded_fonts")
+    for u, bank in enumerate(sorted(banks, key=pinlayout.ball_key), 1):
+        unit = [Atom("symbol"), Atom(f"{name}_{u}_1", quoted=True),
+                _rectangle((-5.08, 5.08), (5.08, -5.08), 0.254, "background")]
+        unit += [pin_nodes[str(p["number"])] for p in banks[bank]]
+        sym.insert(insert_at + u - 1, unit)
+
+    try:
+        pinlayout.relayout(sym, spec["footprint"])
+    except pinlayout.LayoutError as exc:
+        raise SpecError(str(exc)) from exc
     return sym
 
 

@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import config as cfg_mod  # noqa: E402
 import footprints as fp_mod  # noqa: E402
 import kicadlib as K  # noqa: E402
+import pinlayout  # noqa: E402
 import symsource  # noqa: E402
 
 # Fields every part carries, in KiCad's own order. Anything in spec["fields"]
@@ -156,7 +157,110 @@ def build_symbol(spec: Dict) -> K.Node:
             )
         K.set_property(sym, str(key), str(value))
 
+    apply_layout(spec, sym)
     return sym
+
+
+def apply_layout(spec: Dict, sym: K.Node) -> None:
+    """
+    Arrange an IC's pins the way the package is, when that is wanted.
+
+    Explicit `graphics.layout` wins. Otherwise a part of kind `ic` follows the
+    user's symbol_layout convention. A default that cannot be honoured (the
+    symbol is a glyph, not a box) keeps the source layout with a warning; an
+    explicit request that cannot be honoured is an error.
+    """
+    graphics = spec.get("graphics") or {}
+    layout = graphics.get("layout")
+    explicit = layout is not None
+    if layout is None and spec.get("kind") == "ic":
+        import conventions
+        layout = conventions.symbol_layout("ic")
+    if layout in (None, "functional", "source"):
+        return
+    if layout != "package":
+        raise SpecError("graphics.layout must be 'package' or 'functional'")
+    try:
+        spec["_layout"] = pinlayout.relayout(sym, _require(spec, "footprint"))
+    except pinlayout.LayoutError as exc:
+        if explicit:
+            raise SpecError(f"package layout: {exc}") from exc
+        spec["_layout_warning"] = f"kept the source symbol's own layout: {exc}"
+
+
+def _norm_mpn(value: str) -> str:
+    return re.sub(r"\s+", "", str(value)).upper()
+
+
+def find_duplicates(mpn: str, skip: tuple = ()) -> List[tuple]:
+    """Every symbol in every one of the user's libraries carrying this MPN."""
+    if not mpn:
+        return []
+    cfg = cfg_mod.load()
+    want = _norm_mpn(mpn)
+    hits = []
+    for category in cfg.categories:
+        path = cfg.library_path(category)
+        if not os.path.isfile(path):
+            continue
+        for sym in K.symbols(K.load_library(path)):
+            name = K.symbol_name(sym)
+            if (category, name) == skip:
+                continue
+            pn = K.get_property(sym, "Part Number")
+            if pn and _norm_mpn(pn) == want:
+                hits.append((category, name))
+    return hits
+
+
+def evaluate(spec: Dict, replace: bool = False) -> tuple:
+    """
+    Everything that decides whether a part may be written, in one place.
+
+    The CLI and the MCP server both call this, so a check cannot be present in
+    one front end and missing from the other. Returns (symbol, result,
+    target path); raises SpecError when no symbol can be built at all.
+    """
+    cfg = cfg_mod.load()
+    spec.setdefault("category", cfg.staging_category)
+    convention_problems = apply_conventions(spec)
+    sym = build_symbol(spec)
+    result = check(spec, sym)
+    result["errors"] = convention_problems + result["errors"]
+    if spec.get("_layout_warning"):
+        result["warnings"].append(spec["_layout_warning"])
+    for w in (spec.get("_layout") or {}).get("warnings", []):
+        result["warnings"].append(w)
+
+    target = (cfg.library_path(spec["category"])
+              if spec.get("category") in cfg.categories else None)
+    name = K.symbol_name(sym)
+    if target and K.get_symbol(K.load_library(target), name) is not None and not replace:
+        result["errors"].append(
+            f"symbol {name!r} already exists in {os.path.basename(target)}; "
+            "pass --replace to overwrite")
+
+    # Same part already in the library under another name - e.g. a resistor
+    # added before a naming change. Matched on the manufacturer part number
+    # only: LCSC codes change when a distributor relists, and one MPN can
+    # carry several.
+    mpn = (spec.get("fields") or {}).get("Part Number", "")
+    skip = (spec["category"], name) if replace else ()
+    hits = find_duplicates(mpn, skip)
+    if hits:
+        where = ", ".join(f"{c} as {n!r}" for c, n in hits)
+        reason = str(spec.get("duplicate_ok") or "").strip()
+        if reason:
+            result["warnings"].append(
+                f"deliberate variant: {mpn} is also in {where} - {reason}")
+        else:
+            result["errors"].append(
+                f"{mpn} is already in your libraries: {where}. Ask whether to use "
+                "that part instead. If this is a deliberate variant, set "
+                '"duplicate_ok" in the spec to the reason (e.g. "hand-solder '
+                'footprint", "package-order symbol").')
+    result["duplicates"] = hits
+    return sym, result, target
 
 
 def check(spec: Dict, sym: K.Node) -> Dict[str, List[str]]:
@@ -262,6 +366,8 @@ def report(spec: Dict, sym: K.Node, result: Dict[str, List[str]], target: str,
     graphics = spec.get("graphics") or {}
     origin = graphics.get("ref") or graphics.get("path") or graphics.get("symbol")
     print(f"  graphics     {graphics.get('source')}: {origin}")
+    if spec.get("_layout"):
+        print(f"  layout       {pinlayout.summary(spec['_layout'])}")
     print()
     for field in CORE_FIELDS:
         print(f"  {field:<13}{K.get_property(sym, field)}")
@@ -299,35 +405,27 @@ def main() -> int:
     ap.add_argument("--replace", action="store_true", help="overwrite an existing symbol")
     ap.add_argument("--preview", action="store_true", help="render an SVG preview")
     ap.add_argument("--json", action="store_true", help="machine-readable result")
+    ap.add_argument("--allow-duplicate", metavar="REASON",
+                    help="write even though this MPN is already in a library; "
+                         "give the reason the user approved")
     args = ap.parse_args()
 
     with open(args.spec, "r", encoding="utf-8") as fh:
         spec = json.load(fh)
 
-    spec.setdefault("category", cfg_mod.load().staging_category)
-    convention_problems = apply_conventions(spec)
+    if args.allow_duplicate:
+        spec["duplicate_ok"] = args.allow_duplicate
     try:
-        sym = build_symbol(spec)
+        sym, result, target = evaluate(spec, replace=args.replace)
     except (SpecError, ValueError, K.ParseError) as exc:
         if args.json:
             print(json.dumps({"ok": False, "errors": [str(exc)]}))
         else:
             print(f"ERROR: {exc}")
         return 1
-
-    result = check(spec, sym)
-    result["errors"] = convention_problems + result["errors"]
     cfg = cfg_mod.load()
-    target = cfg.library_path(spec["category"]) if spec.get("category") in cfg.categories else "(unknown)"
     name = K.symbol_name(sym)
-
-    if target != "(unknown)":
-        existing = K.load_library(target)
-        if K.get_symbol(existing, name) is not None and not args.replace:
-            result["errors"].append(
-                f"symbol {name!r} already exists in {os.path.basename(target)}; "
-                "pass --replace to overwrite"
-            )
+    target = target or "(unknown)"
 
     preview = None
     if args.preview and not result["errors"]:
@@ -348,6 +446,8 @@ def main() -> int:
             "library": target,
             "pins": K.pin_count(sym),
             "preview": preview,
+            "layout": (spec.get("_layout") and pinlayout.summary(spec["_layout"])),
+            "duplicates": result.get("duplicates", []),
             "errors": result["errors"],
             "warnings": result["warnings"],
         }, indent=2))
